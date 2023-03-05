@@ -17,6 +17,7 @@ pub(crate) mod metadata_cache;
 pub mod partition;
 pub mod producer;
 
+use crate::client::error::{ProtocolError, RequestContext};
 use error::{Error, Result};
 
 use self::{controller::ControllerClient, partition::UnknownTopicHandling};
@@ -170,5 +171,41 @@ impl Client {
                     .collect(),
             })
             .collect())
+    }
+
+    pub async fn fetch_metadata(&self, topic: &str) -> Result<Topic> {
+        let (resp, _gen) = self
+            .brokers
+            .request_metadata(
+                &MetadataLookupMode::ArbitraryBroker,
+                Some(vec![topic.to_string()]),
+            )
+            .await?;
+
+        match resp.topics.first() {
+            Some(t) => {
+                if let Some(err) = t.error {
+                    return Err(Error::ServerError {
+                        protocol_error: err,
+                        error_message: None,
+                        request: RequestContext::Topic(topic.to_string()),
+                        response: None,
+                        is_virtual: false,
+                    });
+                }
+
+                Ok(Topic {
+                    name: topic.to_string(),
+                    partitions: t.partitions.iter().map(|p| p.partition_index.0).collect(),
+                })
+            }
+            None => Err(Error::ServerError {
+                protocol_error: ProtocolError::UnknownTopicOrPartition,
+                error_message: None,
+                request: RequestContext::Topic(topic.to_string()),
+                response: None,
+                is_virtual: false,
+            }),
+        }
     }
 }

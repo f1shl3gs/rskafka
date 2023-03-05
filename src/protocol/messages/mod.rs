@@ -36,8 +36,17 @@ mod metadata;
 pub use metadata::*;
 mod produce;
 pub use produce::*;
+mod delete_groups;
+mod describe_groups;
+mod heartbeat;
+pub mod join_group;
+pub use join_group::*;
+pub mod find_coordinator;
+mod leave_group;
+pub mod list_groups;
 #[cfg(test)]
 mod test_utils;
+pub use describe_groups::*;
 
 #[derive(Error, Debug)]
 #[non_exhaustive]

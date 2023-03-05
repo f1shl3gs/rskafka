@@ -524,6 +524,49 @@ where
     }
 }
 
+/// Represents a raw sequence of bytes. First the length N is given as an INT32. Then N bytes follow.
+#[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
+pub struct Bytes(pub Vec<u8>);
+
+impl<R> ReadType<R> for Bytes
+where
+    R: Read,
+{
+    fn read(reader: &mut R) -> Result<Self, ReadError> {
+        let len = Int32::read(reader)?;
+        match len.0 {
+            l if l < 0 => Err(ReadError::Malformed(
+                format!("Invalid length for bytes: {}", l).into(),
+            )),
+            0 => Ok(Self(vec![])),
+            l => {
+                let len = usize::try_from(l)?;
+                let mut buf = VecBuilder::new(len);
+                buf = buf.read_exact(reader)?;
+                Ok(Self(buf.into()))
+            }
+        }
+    }
+}
+
+impl<W> WriteType<W> for Bytes
+where
+    W: Write,
+{
+    fn write(&self, writer: &mut W) -> Result<(), WriteError> {
+        if self.0.is_empty() {
+            Int32(0).write(writer)
+        } else {
+            let l =
+                i32::try_from(self.0.len()).map_err(|err| WriteError::Malformed(Box::new(err)))?;
+            Int32(l).write(writer)?;
+            writer.write_all(&self.0)?;
+            Ok(())
+        }
+    }
+}
+
 /// Represents a section containing optional tagged fields.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[cfg_attr(test, derive(proptest_derive::Arbitrary))]

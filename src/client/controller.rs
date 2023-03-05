@@ -4,6 +4,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info};
 
+use crate::protocol::messages::{JoinGroupRequest, MetadataResponse};
+use crate::protocol::primitives::{Bytes, NullableString};
 use crate::{
     backoff::{Backoff, BackoffConfig, ErrorOrThrottle},
     client::{Error, Result},
@@ -14,7 +16,10 @@ use crate::{
     messenger::RequestError,
     protocol::{
         error::Error as ProtocolError,
-        messages::{CreateTopicRequest, CreateTopicsRequest, DeleteTopicsRequest},
+        messages::{
+            find_coordinator, join_group, list_groups, CreateTopicRequest, CreateTopicsRequest,
+            DeleteTopicsRequest, DescribeGroupsRequest, Group,
+        },
         primitives::{Array, Int16, Int32, String_},
     },
     throttle::maybe_throttle,
@@ -22,6 +27,14 @@ use crate::{
 };
 
 use super::error::RequestContext;
+
+/// DEFAULT_SESSION_TIMEOUT_MS contains the default interval the coordinator will wait
+/// for a heartbeat before marking a consumer as dead.
+const DEFAULT_SESSION_TIMEOUT_MS: i32 = 30 * 1000;
+
+/// DEFAULT_REBALANCE_TIMEOUT_MS contains the amount of time the coordinator will wait
+/// for consumers to issue a join group once a rebalance has been requested.
+const DEFAULT_REBALANCE_TIMEOUT_MS: i32 = 30 * 1000;
 
 #[derive(Debug)]
 pub struct ControllerClient {
@@ -152,6 +165,143 @@ impl ControllerClient {
         let _ = self.brokers.refresh_metadata().await;
 
         Ok(())
+    }
+
+    pub async fn describe_groups(&self, groups: &[String]) -> Result<Vec<Group>> {
+        let request = &DescribeGroupsRequest {
+            groups: Array(Some(
+                groups.iter().map(|s| String_(s.to_string())).collect(),
+            )),
+            include_authorized_operations: None,
+        };
+
+        maybe_retry(
+            &self.backoff_config,
+            self,
+            "describe_groups",
+            || async move {
+                let (broker, gen) = self
+                    .get()
+                    .await
+                    .map_err(|err| ErrorOrThrottle::Error((err, None)))?;
+                let response = broker
+                    .request(request)
+                    .await
+                    .map_err(|e| ErrorOrThrottle::Error((e.into(), Some(gen))))?;
+
+                Ok(response.groups)
+            },
+        )
+        .await
+    }
+
+    pub async fn list_groups(&self) -> Result<Vec<list_groups::Group>> {
+        let request = &list_groups::ListGroupsRequest {
+            states_filter: Array(None),
+            tagged_fields: None,
+        };
+
+        maybe_retry(&self.backoff_config, self, "list_groups", || async move {
+            let (broker, gen) = self
+                .get()
+                .await
+                .map_err(|e| ErrorOrThrottle::Error((e, None)))?;
+            let response = broker
+                .request(request)
+                .await
+                .map_err(|e| ErrorOrThrottle::Error((e.into(), Some(gen))))?;
+
+            maybe_throttle(response.throttle_time_ms)?;
+
+            Ok(response.groups)
+        })
+        .await
+    }
+
+    /// join_group join the group and return member_id
+    pub async fn join_group(&self, group_id: &str) -> Result<String> {
+        let req = &JoinGroupRequest {
+            group_id: String_(group_id.to_string()),
+            session_timeout_ms: Int32(DEFAULT_SESSION_TIMEOUT_MS),
+            rebalance_timeout_ms: Int32(DEFAULT_REBALANCE_TIMEOUT_MS),
+            member_id: String_("".to_owned()),
+            group_instance_id: NullableString(Some("".to_string())),
+            protocol_type: String_("consumer".to_string()),
+            protocols: vec![join_group::Protocol {
+                name: String_("roundrobin".to_string()),
+                metadata: Bytes(vec![]),
+            }],
+        };
+
+        maybe_retry(&self.backoff_config, self, "join_groups", || async move {
+            let coordinator_id = self.get_coordinator(group_id).await?;
+
+            let broker = self
+                .brokers
+                .connect(coordinator_id)
+                .await
+                .map_err(|err| ErrorOrThrottle::Error((err.into(), None)))?
+                .ok_or(ErrorOrThrottle::Error((
+                    Error::InvalidResponse(format!("Coordinator {} not found", coordinator_id)),
+                    None,
+                )))?;
+
+            let resp = broker
+                .request(req)
+                .await
+                .map_err(|err| ErrorOrThrottle::Error((err.into(), None)))?;
+
+            maybe_throttle(resp.throttle_time_ms)?;
+
+            match resp.error_code {
+                None => Ok(resp.member_id.0),
+                Some(protocol_error) => Err(ErrorOrThrottle::Error((
+                    Error::ServerError {
+                        protocol_error,
+                        error_message: Some("join group failed".to_string()),
+                        request: RequestContext::Group(group_id.to_string()),
+                        response: None,
+                        is_virtual: false,
+                    },
+                    None,
+                ))),
+            }
+        })
+        .await
+    }
+
+    async fn get_coordinator(
+        &self,
+        key: &str,
+    ) -> std::result::Result<i32, ErrorOrThrottle<(Error, Option<BrokerCacheGeneration>)>> {
+        let (broker, gen) = self
+            .get()
+            .await
+            .map_err(|err| ErrorOrThrottle::Error((err, None)))?;
+
+        let req = &find_coordinator::FindCoordinatorRequest {
+            key: String_(key.to_string()),
+            key_type: find_coordinator::CoordinatorType::Group,
+            tagged_fields: None,
+        };
+
+        let resp = broker
+            .request(req)
+            .await
+            .map_err(|err| ErrorOrThrottle::Error((err.into(), Some(gen))))?;
+
+        maybe_throttle(Some(resp.throttle_time_ms))?;
+
+        Ok(resp.node_id.0)
+    }
+
+    pub async fn metadata(&self) -> Result<MetadataResponse> {
+        let (metadata, _gen) = self
+            .brokers
+            .request_metadata(&MetadataLookupMode::ArbitraryBroker, Some(vec![]))
+            .await?;
+
+        Ok(metadata)
     }
 
     /// Retrieve the broker ID of the controller

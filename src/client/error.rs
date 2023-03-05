@@ -25,6 +25,9 @@ pub enum RequestContext {
         /// Offset used during the request.
         offset: i64,
     },
+
+    /// Error is specific to a Group operation, e.g. JoinGroup, LeaveGroup ...
+    Group(String),
 }
 
 /// Usable broker data for [`Error::ServerError`].
