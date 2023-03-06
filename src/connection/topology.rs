@@ -15,8 +15,8 @@ pub struct BrokerTopology {
 pub struct Broker {
     /// broker ID from the topology metadata
     pub id: i32,
-    host: String,
-    port: i32,
+    pub host: String,
+    pub port: i32,
 }
 
 impl Display for Broker {

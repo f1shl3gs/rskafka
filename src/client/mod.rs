@@ -5,7 +5,7 @@ use thiserror::Error;
 use crate::{
     build_info::DEFAULT_CLIENT_ID,
     client::partition::PartitionClient,
-    connection::{BrokerConnector, MetadataLookupMode, TlsConfig},
+    connection::{BrokerConnector, MetadataLookupMode, TlsConfig, },
     protocol::primitives::Boolean,
     topic::Topic,
 };
@@ -19,6 +19,8 @@ pub mod producer;
 
 use crate::client::error::{ProtocolError, RequestContext};
 use error::{Error, Result};
+use crate::connection::Broker;
+use crate::topic::Partition;
 
 use self::{controller::ControllerClient, partition::UnknownTopicHandling};
 
@@ -143,6 +145,13 @@ impl Client {
         .await
     }
 
+    /// Returns a list of brokers from cluster topology
+    pub fn brokers(&self) -> Vec<Broker> {
+        self.brokers
+            .topology
+            .get_brokers()
+    }
+
     /// Returns a list of topics in the cluster
     pub async fn list_topics(&self) -> Result<Vec<Topic>> {
         // Do not used a cached metadata response to satisfy this request, in
@@ -167,7 +176,11 @@ impl Client {
                 partitions: t
                     .partitions
                     .into_iter()
-                    .map(|p| p.partition_index.0)
+                    .map(|p| (p.partition_index.0, Partition {
+                        leader_id: p.leader_id.0,
+                        replica_nodes: p.replica_nodes.0.map(|s| s.iter().map(|v| v.0).collect::<Vec<_>>()).unwrap_or_default(),
+                        isr_nodes: p.isr_nodes.0.map(|s| s.iter().map(|v| v.0).collect::<Vec<_>>()).unwrap_or_default(),
+                    }))
                     .collect(),
             })
             .collect())
@@ -196,7 +209,11 @@ impl Client {
 
                 Ok(Topic {
                     name: topic.to_string(),
-                    partitions: t.partitions.iter().map(|p| p.partition_index.0).collect(),
+                    partitions: t.partitions.iter().map(|p| (p.partition_index.0, Partition {
+                        leader_id: p.leader_id.0,
+                        replica_nodes: p.replica_nodes.0.as_ref().map(|s| s.iter().map(|v| v.0).collect::<Vec<_>>()).unwrap_or_default(),
+                        isr_nodes: p.isr_nodes.0.as_ref().map(|s| s.iter().map(|v| v.0).collect::<Vec<_>>()).unwrap_or_default(),
+                    })).collect(),
                 })
             }
             None => Err(Error::ServerError {

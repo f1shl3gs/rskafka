@@ -8,7 +8,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::backoff::ErrorOrThrottle;
 use crate::client::metadata_cache::MetadataCacheGeneration;
-use crate::connection::topology::{Broker, BrokerTopology};
+pub use crate::connection::topology::{Broker, BrokerTopology};
 use crate::connection::transport::Transport;
 use crate::messenger::{Messenger, RequestError};
 use crate::protocol::messages::{MetadataRequest, MetadataRequestTopic, MetadataResponse};
@@ -155,7 +155,7 @@ pub struct BrokerConnector {
     client_id: Arc<str>,
 
     /// Discovered brokers in the cluster, including bootstrap brokers
-    topology: BrokerTopology,
+    pub topology: BrokerTopology,
 
     /// The cached arbitrary broker.
     ///
