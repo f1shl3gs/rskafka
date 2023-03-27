@@ -4,6 +4,18 @@ use super::primitives::Int16;
 #[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct ApiVersion(pub Int16);
 
+impl From<i16> for ApiVersion {
+    fn from(value: i16) -> Self {
+        ApiVersion(Int16(value))
+    }
+}
+
+impl ApiVersion {
+    pub const fn new(value: i16) -> ApiVersion {
+        ApiVersion(Int16(value))
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct ApiVersionRange {
     min: ApiVersion,

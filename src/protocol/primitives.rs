@@ -567,6 +567,47 @@ where
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
+pub struct CompactBytes(pub Vec<u8>);
+
+impl<R> ReadType<R> for CompactBytes
+where
+    R: Read,
+{
+    fn read(reader: &mut R) -> Result<Self, ReadError> {
+        let len = UnsignedVarint::read(reader)?;
+
+        match len.0 {
+            0 => Err(ReadError::Malformed(
+                "CompactBytes must have non-zero length".into(),
+            )),
+
+            len => {
+                let len = usize::try_from(len)?;
+                let len = len - 1;
+
+                let mut buf = VecBuilder::new(len);
+                buf = buf.read_exact(reader)?;
+
+                Ok(Self(buf.into()))
+            }
+        }
+    }
+}
+
+impl<W> WriteType<W> for CompactBytes
+where
+    W: Write,
+{
+    fn write(&self, writer: &mut W) -> Result<(), WriteError> {
+        let len = u64::try_from(self.0.len() + 1).map_err(WriteError::Overflow)?;
+        UnsignedVarint(len).write(writer)?;
+        writer.write_all(&self.0)?;
+        Ok(())
+    }
+}
+
 /// Represents a section containing optional tagged fields.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[cfg_attr(test, derive(proptest_derive::Arbitrary))]
@@ -610,6 +651,18 @@ where
         }
 
         Ok(())
+    }
+}
+
+impl<W> WriteType<W> for Option<TaggedFields>
+where
+    W: Write,
+{
+    fn write(&self, writer: &mut W) -> Result<(), WriteError> {
+        match self {
+            Some(tagged_fields) => tagged_fields.write(writer),
+            None => TaggedFields::default().write(writer),
+        }
     }
 }
 
