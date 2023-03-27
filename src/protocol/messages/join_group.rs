@@ -68,10 +68,9 @@ impl RequestBody for JoinGroupRequest {
 
     const API_KEY: ApiKey = ApiKey::JoinGroup;
 
-    const API_VERSION_RANGE: ApiVersionRange =
-        ApiVersionRange::new(ApiVersion(Int16(0)), ApiVersion(Int16(5)));
+    const API_VERSION_RANGE: ApiVersionRange = ApiVersionRange::new(0, 5);
 
-    const FIRST_TAGGED_FIELD_IN_REQUEST_VERSION: ApiVersion = ApiVersion(Int16(6));
+    const FIRST_TAGGED_FIELD_IN_REQUEST_VERSION: ApiVersion = ApiVersion::new(6);
 }
 
 impl<W> WriteVersionedType<W> for JoinGroupRequest
@@ -83,7 +82,7 @@ where
         writer: &mut W,
         version: ApiVersion,
     ) -> Result<(), WriteVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 5);
 
         self.group_id.write(writer)?;
@@ -123,7 +122,7 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 5);
 
         let member_id = String_::read(reader)?;
@@ -168,7 +167,7 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 5);
 
         let throttle_time_ms = (v >= 2).then(|| Int32::read(reader)).transpose()?;

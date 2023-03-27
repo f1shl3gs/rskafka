@@ -25,10 +25,9 @@ impl RequestBody for DescribeGroupsRequest {
 
     const API_KEY: ApiKey = ApiKey::DescribeGroups;
 
-    const API_VERSION_RANGE: ApiVersionRange =
-        ApiVersionRange::new(ApiVersion(Int16(0)), ApiVersion(Int16(4)));
+    const API_VERSION_RANGE: ApiVersionRange = ApiVersionRange::new(0, 4);
 
-    const FIRST_TAGGED_FIELD_IN_REQUEST_VERSION: ApiVersion = ApiVersion(Int16(5));
+    const FIRST_TAGGED_FIELD_IN_REQUEST_VERSION: ApiVersion = ApiVersion::new(5);
 }
 
 impl<W> WriteVersionedType<W> for DescribeGroupsRequest
@@ -40,7 +39,7 @@ where
         writer: &mut W,
         version: ApiVersion,
     ) -> Result<(), WriteVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 4);
 
         self.groups.write(writer)?;
@@ -84,7 +83,7 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 4);
 
         let member_id = String_::read(reader)?;
@@ -136,7 +135,7 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 4);
 
         let error_code = Error::new(Int16::read(reader)?.0);

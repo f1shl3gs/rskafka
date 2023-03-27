@@ -33,7 +33,7 @@ where
         writer: &mut W,
         version: ApiVersion,
     ) -> Result<(), WriteVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 4);
 
         if v >= 4 {
@@ -58,10 +58,9 @@ impl RequestBody for ListGroupsRequest {
 
     const API_KEY: ApiKey = ApiKey::ListGroups;
 
-    const API_VERSION_RANGE: ApiVersionRange =
-        ApiVersionRange::new(ApiVersion(Int16(0)), ApiVersion(Int16(0)));
+    const API_VERSION_RANGE: ApiVersionRange = ApiVersionRange::new(0, 0);
 
-    const FIRST_TAGGED_FIELD_IN_REQUEST_VERSION: ApiVersion = ApiVersion(Int16(3));
+    const FIRST_TAGGED_FIELD_IN_REQUEST_VERSION: ApiVersion = ApiVersion::new(3);
 }
 
 #[derive(Debug)]
@@ -89,7 +88,7 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 4);
 
         let group_id = if v < 4 {
@@ -141,7 +140,7 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 4);
 
         let throttle_time_ms = (v >= 1).then(|| Int32::read(reader)).transpose()?;

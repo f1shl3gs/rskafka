@@ -35,10 +35,9 @@ impl RequestBody for DeleteTopicsRequest {
     const API_KEY: ApiKey = ApiKey::DeleteTopics;
 
     /// Enough for now.
-    const API_VERSION_RANGE: ApiVersionRange =
-        ApiVersionRange::new(ApiVersion(Int16(0)), ApiVersion(Int16(5)));
+    const API_VERSION_RANGE: ApiVersionRange = ApiVersionRange::new(0, 5);
 
-    const FIRST_TAGGED_FIELD_IN_REQUEST_VERSION: ApiVersion = ApiVersion(Int16(4));
+    const FIRST_TAGGED_FIELD_IN_REQUEST_VERSION: ApiVersion = ApiVersion::new(4);
 }
 
 impl<W> WriteVersionedType<W> for DeleteTopicsRequest
@@ -50,7 +49,7 @@ where
         writer: &mut W,
         version: ApiVersion,
     ) -> Result<(), WriteVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 5);
 
         if v >= 4 {
@@ -106,7 +105,7 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 5);
 
         let throttle_time_ms = (v >= 1).then(|| Int32::read(reader)).transpose()?;
@@ -149,7 +148,7 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 5);
 
         let name = if v >= 4 {

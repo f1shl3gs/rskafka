@@ -58,7 +58,7 @@ where
         writer: &mut W,
         version: ApiVersion,
     ) -> Result<(), WriteVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 3);
 
         if v < 3 {
@@ -90,10 +90,9 @@ impl RequestBody for FindCoordinatorRequest {
 
     const API_KEY: ApiKey = ApiKey::FindCoordinator;
 
-    const API_VERSION_RANGE: ApiVersionRange =
-        ApiVersionRange::new(ApiVersion(Int16(1)), ApiVersion(Int16(3)));
+    const API_VERSION_RANGE: ApiVersionRange = ApiVersionRange::new(1, 3);
 
-    const FIRST_TAGGED_FIELD_IN_REQUEST_VERSION: ApiVersion = ApiVersion(Int16(3));
+    const FIRST_TAGGED_FIELD_IN_REQUEST_VERSION: ApiVersion = ApiVersion::new(3);
 }
 
 #[derive(Debug)]
@@ -141,7 +140,7 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v > 0);
         assert!(v <= 4);
 

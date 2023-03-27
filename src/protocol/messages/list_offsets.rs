@@ -56,7 +56,7 @@ where
         writer: &mut W,
         version: ApiVersion,
     ) -> Result<(), WriteVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 3);
 
         self.partition_index.write(writer)?;
@@ -91,7 +91,7 @@ where
         writer: &mut W,
         version: ApiVersion,
     ) -> Result<(), WriteVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 3);
 
         self.name.write(writer)?;
@@ -136,7 +136,7 @@ where
         writer: &mut W,
         version: ApiVersion,
     ) -> Result<(), WriteVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 3);
 
         self.replica_id.write(writer)?;
@@ -159,10 +159,9 @@ impl RequestBody for ListOffsetsRequest {
     const API_KEY: ApiKey = ApiKey::ListOffsets;
 
     /// At the time of writing this is the same subset supported by rdkafka
-    const API_VERSION_RANGE: ApiVersionRange =
-        ApiVersionRange::new(ApiVersion(Int16(0)), ApiVersion(Int16(3)));
+    const API_VERSION_RANGE: ApiVersionRange = ApiVersionRange::new(0, 3);
 
-    const FIRST_TAGGED_FIELD_IN_REQUEST_VERSION: ApiVersion = ApiVersion(Int16(6));
+    const FIRST_TAGGED_FIELD_IN_REQUEST_VERSION: ApiVersion = ApiVersion::new(6);
 }
 
 #[derive(Debug)]
@@ -194,7 +193,7 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 3);
 
         Ok(Self {
@@ -221,7 +220,7 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 3);
 
         Ok(Self {
@@ -247,7 +246,7 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 3);
 
         Ok(Self {

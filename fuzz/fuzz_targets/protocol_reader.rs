@@ -30,7 +30,7 @@ fn driver(data: &[u8]) -> Result<(), Error> {
     let mut cursor = Cursor::new(data);
 
     let api_key = ApiKey::from(Int16::read(&mut cursor)?);
-    let api_version = ApiVersion(Int16::read(&mut cursor)?);
+    let api_version = ApiVersion::read(&mut cursor)?;
 
     match api_key {
         ApiKey::ApiVersions => send_recv(
@@ -139,7 +139,7 @@ where
         let mut messenger = Messenger::new(transport, message_size, Arc::from(DEFAULT_CLIENT_ID));
         messenger.override_version_ranges(HashMap::from([(
             api_key,
-            ApiVersionRange::new(api_version, api_version),
+            ApiVersionRange::new(api_version.0, api_version.0),
         )]));
 
         // the actual request

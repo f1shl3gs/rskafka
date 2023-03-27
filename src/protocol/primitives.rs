@@ -104,6 +104,28 @@ where
     }
 }
 
+impl<R> ReadType<R> for i16
+where
+    R: Read,
+{
+    fn read(reader: &mut R) -> Result<Self, ReadError> {
+        let mut buf = [0u8; 2];
+        reader.read_exact(&mut buf)?;
+        Ok(i16::from_be_bytes(buf))
+    }
+}
+
+impl<W> WriteType<W> for i16
+where
+    W: Write,
+{
+    fn write(&self, writer: &mut W) -> Result<(), WriteError> {
+        let buf = self.to_be_bytes();
+        writer.write_all(&buf)?;
+        Ok(())
+    }
+}
+
 /// Represents an integer between `-2^31` and `2^31-1` inclusive.
 ///
 /// The values are encoded using four bytes in network byte order (big-endian).

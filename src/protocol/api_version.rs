@@ -1,18 +1,22 @@
-use super::primitives::Int16;
+use std::io::Read;
+
+use crate::protocol::traits::{ReadError, ReadType};
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
+#[non_exhaustive]
 #[cfg_attr(test, derive(proptest_derive::Arbitrary))]
-pub struct ApiVersion(pub Int16);
-
-impl From<i16> for ApiVersion {
-    fn from(value: i16) -> Self {
-        ApiVersion(Int16(value))
-    }
-}
+pub struct ApiVersion(pub i16);
 
 impl ApiVersion {
     pub const fn new(value: i16) -> ApiVersion {
-        ApiVersion(Int16(value))
+        Self(value)
+    }
+}
+
+impl<R: Read> ReadType<R> for ApiVersion {
+    fn read(reader: &mut R) -> Result<Self, ReadError> {
+        let v = i16::read(reader)?;
+        Ok(ApiVersion(v))
     }
 }
 
@@ -24,15 +28,18 @@ pub struct ApiVersionRange {
 
 impl std::fmt::Display for ApiVersion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0 .0)
+        write!(f, "{}", self.0)
     }
 }
 
 impl ApiVersionRange {
-    pub const fn new(min: ApiVersion, max: ApiVersion) -> Self {
-        assert!(min.0 .0 <= max.0 .0);
+    pub const fn new(min: i16, max: i16) -> Self {
+        assert!(min <= max);
 
-        Self { min, max }
+        Self {
+            min: ApiVersion(min),
+            max: ApiVersion(max),
+        }
     }
 
     pub fn min(&self) -> ApiVersion {

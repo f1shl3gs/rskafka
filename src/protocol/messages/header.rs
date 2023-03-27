@@ -37,12 +37,12 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 2);
 
         Ok(Self {
             request_api_key: ApiKey::from(Int16::read(reader)?),
-            request_api_version: ApiVersion(Int16::read(reader)?),
+            request_api_version: ApiVersion::new(i16::read(reader)?),
             correlation_id: Int32::read(reader)?,
             client_id: (v >= 1).then(|| NullableString::read(reader)).transpose()?,
             tagged_fields: (v >= 2).then(|| TaggedFields::read(reader)).transpose()?,
@@ -59,7 +59,7 @@ where
         writer: &mut W,
         version: ApiVersion,
     ) -> Result<(), WriteVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 2);
 
         Int16::from(self.request_api_key).write(writer)?;
@@ -109,7 +109,7 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 1);
 
         Ok(Self {
@@ -129,7 +129,7 @@ where
         writer: &mut W,
         version: ApiVersion,
     ) -> Result<(), WriteVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 1);
 
         self.correlation_id.write(writer)?;
@@ -157,15 +157,15 @@ mod tests {
 
     test_roundtrip_versioned!(
         RequestHeader,
-        ApiVersion(Int16(0)),
-        ApiVersion(Int16(2)),
+        ApiVersion(0),
+        ApiVersion(2),
         test_roundtrip_request_header
     );
 
     test_roundtrip_versioned!(
         ResponseHeader,
-        ApiVersion(Int16(0)),
-        ApiVersion(Int16(1)),
+        ApiVersion(0),
+        ApiVersion(1),
         test_roundtrip_response_header
     );
 }

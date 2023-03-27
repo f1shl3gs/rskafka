@@ -33,10 +33,9 @@ impl RequestBody for MetadataRequest {
     const API_KEY: ApiKey = ApiKey::Metadata;
 
     /// At the time of writing this is the same subset supported by rdkafka
-    const API_VERSION_RANGE: ApiVersionRange =
-        ApiVersionRange::new(ApiVersion(Int16(0)), ApiVersion(Int16(4)));
+    const API_VERSION_RANGE: ApiVersionRange = ApiVersionRange::new(0, 4);
 
-    const FIRST_TAGGED_FIELD_IN_REQUEST_VERSION: ApiVersion = ApiVersion(Int16(9));
+    const FIRST_TAGGED_FIELD_IN_REQUEST_VERSION: ApiVersion = ApiVersion::new(9);
 }
 
 impl<W> WriteVersionedType<W> for MetadataRequest
@@ -48,7 +47,7 @@ where
         writer: &mut W,
         version: ApiVersion,
     ) -> Result<(), WriteVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 4);
 
         if v < 4 && self.allow_auto_topic_creation.is_some() {
@@ -85,7 +84,7 @@ where
         writer: &mut W,
         version: ApiVersion,
     ) -> Result<(), WriteVersionedError> {
-        assert!(version.0 .0 <= 4);
+        assert!(version.0 <= 4);
         Ok(self.name.write(writer)?)
     }
 }
@@ -120,7 +119,7 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 4);
 
         let throttle_time_ms = (v >= 3).then(|| Int32::read(reader)).transpose()?;
@@ -156,7 +155,7 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 4);
 
         let node_id = Int32::read(reader)?;
@@ -190,7 +189,7 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 4);
 
         let error = Error::new(Int16::read(reader)?.0);
@@ -226,7 +225,7 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 4);
 
         Ok(Self {

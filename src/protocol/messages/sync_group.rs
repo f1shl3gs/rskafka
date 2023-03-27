@@ -36,7 +36,7 @@ where
         writer: &mut W,
         version: ApiVersion,
     ) -> Result<(), WriteVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 5);
 
         if v < 4 {
@@ -106,7 +106,7 @@ where
         writer: &mut W,
         version: ApiVersion,
     ) -> Result<(), WriteVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 5);
 
         if v < 4 {
@@ -153,8 +153,7 @@ impl RequestBody for SyncGroupRequest {
 
     const API_KEY: ApiKey = ApiKey::SyncGroup;
 
-    const API_VERSION_RANGE: ApiVersionRange =
-        ApiVersionRange::new(ApiVersion(Int16(0)), ApiVersion(Int16(5)));
+    const API_VERSION_RANGE: ApiVersionRange = ApiVersionRange::new(0, 5);
 
     const FIRST_TAGGED_FIELD_IN_REQUEST_VERSION: ApiVersion = ApiVersion::new(4);
 }
@@ -196,7 +195,7 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 5);
 
         let throttle_time_ms = if v >= 1 {

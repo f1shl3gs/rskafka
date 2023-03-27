@@ -43,7 +43,7 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 3);
 
         Ok(Self {
@@ -63,7 +63,7 @@ where
         writer: &mut W,
         version: ApiVersion,
     ) -> Result<(), WriteVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 3);
 
         if v >= 3 {
@@ -102,15 +102,14 @@ where
 impl RequestBody for ApiVersionsRequest {
     type ResponseBody = ApiVersionsResponse;
     const API_KEY: ApiKey = ApiKey::ApiVersions;
-    const API_VERSION_RANGE: ApiVersionRange =
-        ApiVersionRange::new(ApiVersion(Int16(0)), ApiVersion(Int16(3)));
-    const FIRST_TAGGED_FIELD_IN_REQUEST_VERSION: ApiVersion = ApiVersion(Int16(3));
+    const API_VERSION_RANGE: ApiVersionRange = ApiVersionRange::new(0, 3);
+    const FIRST_TAGGED_FIELD_IN_REQUEST_VERSION: ApiVersion = ApiVersion::new(3);
 
     // It seems version 3 actually doesn't use tagged fields during response, at least not for Kafka 3.
     //
     // rdkafka also does this, see
     // https://github.com/edenhill/librdkafka/blob/2b76b65212e5efda213961d5f84e565038036270/src/rdkafka_broker.c#L1781-L1785
-    const FIRST_TAGGED_FIELD_IN_RESPONSE_VERSION: ApiVersion = ApiVersion(Int16(i16::MAX));
+    const FIRST_TAGGED_FIELD_IN_RESPONSE_VERSION: ApiVersion = ApiVersion::new(i16::MAX);
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -136,13 +135,13 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 3);
 
         Ok(Self {
             api_key: Int16::read(reader)?.into(),
-            min_version: ApiVersion(Int16::read(reader)?),
-            max_version: ApiVersion(Int16::read(reader)?),
+            min_version: ApiVersion::new(i16::read(reader)?),
+            max_version: ApiVersion::new(i16::read(reader)?),
             tagged_fields: (v >= 3).then(|| TaggedFields::read(reader)).transpose()?,
         })
     }
@@ -158,7 +157,7 @@ where
         writer: &mut W,
         version: ApiVersion,
     ) -> Result<(), WriteVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 3);
 
         let api_key: Int16 = self.api_key.into();
@@ -213,7 +212,7 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 3);
 
         let error_code = ApiError::new(Int16::read(reader)?.0);
@@ -244,7 +243,7 @@ where
         writer: &mut W,
         version: ApiVersion,
     ) -> Result<(), WriteVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 3);
 
         let error_code: Int16 = self.error_code.into();

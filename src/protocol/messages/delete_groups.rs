@@ -27,10 +27,9 @@ impl RequestBody for DeleteGroupsRequest {
 
     const API_KEY: ApiKey = ApiKey::DeleteGroups;
 
-    const API_VERSION_RANGE: ApiVersionRange =
-        ApiVersionRange::new(ApiVersion(Int16(0)), ApiVersion(Int16(2)));
+    const API_VERSION_RANGE: ApiVersionRange = ApiVersionRange::new(0, 2);
 
-    const FIRST_TAGGED_FIELD_IN_REQUEST_VERSION: ApiVersion = ApiVersion(Int16(2));
+    const FIRST_TAGGED_FIELD_IN_REQUEST_VERSION: ApiVersion = ApiVersion::new(2);
 }
 
 impl<W> WriteVersionedType<W> for DeleteGroupsRequest
@@ -42,7 +41,7 @@ where
         writer: &mut W,
         version: ApiVersion,
     ) -> Result<(), WriteVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 2);
 
         if v >= 2 {
@@ -88,7 +87,7 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 2);
 
         let group_id = String_::read(reader)?;
@@ -121,7 +120,7 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 2);
 
         let throttle_time_ms = Int32::read(reader)?;
