@@ -761,9 +761,9 @@ mod tests {
 
             let mut futures = FuturesOrdered::new();
 
-            futures.push(producer.produce(record.clone()));
-            futures.push(producer.produce(record.clone()));
-            futures.push(producer.produce(record.clone()));
+            futures.push_back(producer.produce(record.clone()));
+            futures.push_back(producer.produce(record.clone()));
+            futures.push_back(producer.produce(record.clone()));
 
             let assert_ok = |a: Result<Option<Result<_, _>>, _>, expected: i64| {
                 let offset = a
