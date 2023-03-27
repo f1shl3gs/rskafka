@@ -82,7 +82,7 @@
 //!     headers: BTreeMap::from([
 //!         ("foo".to_owned(), b"bar".to_vec()),
 //!     ]),
-//!     timestamp: Utc.timestamp_millis(42),
+//!     timestamp: Utc.timestamp_millis_opt(42).unwrap(),
 //! };
 //! producer.produce(record.clone()).await.unwrap();
 //! # }
@@ -156,7 +156,7 @@
 //!                 headers: BTreeMap::from([
 //!                     ("foo".to_owned(), b"bar".to_vec()),
 //!                 ]),
-//!                 timestamp: Utc.timestamp_millis(42),
+//!                 timestamp: Utc.timestamp_millis_opt(42).unwrap(),
 //!             },
 //!         ];
 //!         Ok((

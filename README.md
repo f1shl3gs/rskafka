@@ -70,7 +70,7 @@ let record = Record {
     headers: BTreeMap::from([
         ("foo".to_owned(), b"bar".to_vec()),
     ]),
-    timestamp: Utc.timestamp_millis(42),
+    timestamp: Utc.timestamp_millis_opt(42).unwrap(),
 };
 partition_client.produce(vec![record], Compression::default()).await.unwrap();
 
