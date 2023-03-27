@@ -44,8 +44,10 @@ pub use join_group::*;
 pub mod find_coordinator;
 mod leave_group;
 pub mod list_groups;
+mod sync_group;
 #[cfg(test)]
 mod test_utils;
+
 pub use describe_groups::*;
 
 #[derive(Error, Debug)]
