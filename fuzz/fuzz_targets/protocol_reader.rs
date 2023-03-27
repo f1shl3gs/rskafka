@@ -29,7 +29,7 @@ type Error = Box<dyn std::error::Error>;
 fn driver(data: &[u8]) -> Result<(), Error> {
     let mut cursor = Cursor::new(data);
 
-    let api_key = ApiKey::from(Int16::read(&mut cursor)?);
+    let api_key = ApiKey::from(i16::read(&mut cursor)?);
     let api_version = ApiVersion::read(&mut cursor)?;
 
     match api_key {

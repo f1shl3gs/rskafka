@@ -244,8 +244,6 @@ mod tests {
 
     use assert_matches::assert_matches;
 
-    use crate::protocol::primitives::Int16;
-
     use super::*;
 
     #[derive(Debug, Copy, Clone, PartialEq)]

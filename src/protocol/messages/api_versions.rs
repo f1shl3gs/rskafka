@@ -139,7 +139,7 @@ where
         assert!(v <= 3);
 
         Ok(Self {
-            api_key: Int16::read(reader)?.into(),
+            api_key: i16::read(reader)?.into(),
             min_version: ApiVersion::new(i16::read(reader)?),
             max_version: ApiVersion::new(i16::read(reader)?),
             tagged_fields: (v >= 3).then(|| TaggedFields::read(reader)).transpose()?,
@@ -160,7 +160,7 @@ where
         let v = version.0;
         assert!(v <= 3);
 
-        let api_key: Int16 = self.api_key.into();
+        let api_key: i16 = self.api_key.into();
         api_key.write(writer)?;
 
         self.min_version.0.write(writer)?;

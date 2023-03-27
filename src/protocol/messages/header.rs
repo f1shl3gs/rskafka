@@ -41,7 +41,7 @@ where
         assert!(v <= 2);
 
         Ok(Self {
-            request_api_key: ApiKey::from(Int16::read(reader)?),
+            request_api_key: ApiKey::from(i16::read(reader)?),
             request_api_version: ApiVersion::new(i16::read(reader)?),
             correlation_id: Int32::read(reader)?,
             client_id: (v >= 1).then(|| NullableString::read(reader)).transpose()?,
@@ -62,7 +62,7 @@ where
         let v = version.0;
         assert!(v <= 2);
 
-        Int16::from(self.request_api_key).write(writer)?;
+        i16::from(self.request_api_key).write(writer)?;
         self.request_api_version.0.write(writer)?;
         self.correlation_id.write(writer)?;
 

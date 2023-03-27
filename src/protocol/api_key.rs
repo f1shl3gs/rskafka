@@ -3,8 +3,6 @@
 //! # References
 //! - <https://kafka.apache.org/protocol#protocol_api_keys>
 
-use super::primitives::Int16;
-
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
 #[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum ApiKey {
@@ -67,12 +65,12 @@ pub enum ApiKey {
     DescribeTransactions,
     ListTransactions,
     AllocateProducerIds,
-    Unknown(Int16),
+    Unknown(i16),
 }
 
-impl From<Int16> for ApiKey {
-    fn from(key: Int16) -> Self {
-        match key.0 {
+impl From<i16> for ApiKey {
+    fn from(key: i16) -> Self {
+        match key {
             0 => Self::Produce,
             1 => Self::Fetch,
             2 => Self::ListOffsets,
@@ -137,68 +135,68 @@ impl From<Int16> for ApiKey {
     }
 }
 
-impl From<ApiKey> for Int16 {
+impl From<ApiKey> for i16 {
     fn from(key: ApiKey) -> Self {
         match key {
-            ApiKey::Produce => Self(0),
-            ApiKey::Fetch => Self(1),
-            ApiKey::ListOffsets => Self(2),
-            ApiKey::Metadata => Self(3),
-            ApiKey::LeaderAndIsr => Self(4),
-            ApiKey::StopReplica => Self(5),
-            ApiKey::UpdateMetadata => Self(6),
-            ApiKey::ControlledShutdown => Self(7),
-            ApiKey::OffsetCommit => Self(8),
-            ApiKey::OffsetFetch => Self(9),
-            ApiKey::FindCoordinator => Self(10),
-            ApiKey::JoinGroup => Self(11),
-            ApiKey::Heartbeat => Self(12),
-            ApiKey::LeaveGroup => Self(13),
-            ApiKey::SyncGroup => Self(14),
-            ApiKey::DescribeGroups => Self(15),
-            ApiKey::ListGroups => Self(16),
-            ApiKey::SaslHandshake => Self(17),
-            ApiKey::ApiVersions => Self(18),
-            ApiKey::CreateTopics => Self(19),
-            ApiKey::DeleteTopics => Self(20),
-            ApiKey::DeleteRecords => Self(21),
-            ApiKey::InitProducerId => Self(22),
-            ApiKey::OffsetForLeaderEpoch => Self(23),
-            ApiKey::AddPartitionsToTxn => Self(24),
-            ApiKey::AddOffsetsToTxn => Self(25),
-            ApiKey::EndTxn => Self(26),
-            ApiKey::WriteTxnMarkers => Self(27),
-            ApiKey::TxnOffsetCommit => Self(28),
-            ApiKey::DescribeAcls => Self(29),
-            ApiKey::CreateAcls => Self(30),
-            ApiKey::DeleteAcls => Self(31),
-            ApiKey::DescribeConfigs => Self(32),
-            ApiKey::AlterConfigs => Self(33),
-            ApiKey::AlterReplicaLogDirs => Self(34),
-            ApiKey::DescribeLogDirs => Self(35),
-            ApiKey::SaslAuthenticate => Self(36),
-            ApiKey::CreatePartitions => Self(37),
-            ApiKey::CreateDelegationToken => Self(38),
-            ApiKey::RenewDelegationToken => Self(39),
-            ApiKey::ExpireDelegationToken => Self(40),
-            ApiKey::DescribeDelegationToken => Self(41),
-            ApiKey::DeleteGroups => Self(42),
-            ApiKey::ElectLeaders => Self(43),
-            ApiKey::IncrementalAlterConfigs => Self(44),
-            ApiKey::AlterPartitionReassignments => Self(45),
-            ApiKey::ListPartitionReassignments => Self(46),
-            ApiKey::OffsetDelete => Self(47),
-            ApiKey::DescribeClientQuotas => Self(48),
-            ApiKey::AlterClientQuotas => Self(49),
-            ApiKey::DescribeUserScramCredentials => Self(50),
-            ApiKey::AlterUserScramCredentials => Self(51),
-            ApiKey::AlterIsr => Self(56),
-            ApiKey::UpdateFeatures => Self(57),
-            ApiKey::DescribeCluster => Self(60),
-            ApiKey::DescribeProducers => Self(61),
-            ApiKey::DescribeTransactions => Self(65),
-            ApiKey::ListTransactions => Self(66),
-            ApiKey::AllocateProducerIds => Self(67),
+            ApiKey::Produce => 0,
+            ApiKey::Fetch => 1,
+            ApiKey::ListOffsets => 2,
+            ApiKey::Metadata => 3,
+            ApiKey::LeaderAndIsr => 4,
+            ApiKey::StopReplica => 5,
+            ApiKey::UpdateMetadata => 6,
+            ApiKey::ControlledShutdown => 7,
+            ApiKey::OffsetCommit => 8,
+            ApiKey::OffsetFetch => 9,
+            ApiKey::FindCoordinator => 10,
+            ApiKey::JoinGroup => 11,
+            ApiKey::Heartbeat => 12,
+            ApiKey::LeaveGroup => 13,
+            ApiKey::SyncGroup => 14,
+            ApiKey::DescribeGroups => 15,
+            ApiKey::ListGroups => 16,
+            ApiKey::SaslHandshake => 17,
+            ApiKey::ApiVersions => 18,
+            ApiKey::CreateTopics => 19,
+            ApiKey::DeleteTopics => 20,
+            ApiKey::DeleteRecords => 21,
+            ApiKey::InitProducerId => 22,
+            ApiKey::OffsetForLeaderEpoch => 23,
+            ApiKey::AddPartitionsToTxn => 24,
+            ApiKey::AddOffsetsToTxn => 25,
+            ApiKey::EndTxn => 26,
+            ApiKey::WriteTxnMarkers => 27,
+            ApiKey::TxnOffsetCommit => 28,
+            ApiKey::DescribeAcls => 29,
+            ApiKey::CreateAcls => 30,
+            ApiKey::DeleteAcls => 31,
+            ApiKey::DescribeConfigs => 32,
+            ApiKey::AlterConfigs => 33,
+            ApiKey::AlterReplicaLogDirs => 34,
+            ApiKey::DescribeLogDirs => 35,
+            ApiKey::SaslAuthenticate => 36,
+            ApiKey::CreatePartitions => 37,
+            ApiKey::CreateDelegationToken => 38,
+            ApiKey::RenewDelegationToken => 39,
+            ApiKey::ExpireDelegationToken => 40,
+            ApiKey::DescribeDelegationToken => 41,
+            ApiKey::DeleteGroups => 42,
+            ApiKey::ElectLeaders => 43,
+            ApiKey::IncrementalAlterConfigs => 44,
+            ApiKey::AlterPartitionReassignments => 45,
+            ApiKey::ListPartitionReassignments => 46,
+            ApiKey::OffsetDelete => 47,
+            ApiKey::DescribeClientQuotas => 48,
+            ApiKey::AlterClientQuotas => 49,
+            ApiKey::DescribeUserScramCredentials => 50,
+            ApiKey::AlterUserScramCredentials => 51,
+            ApiKey::AlterIsr => 56,
+            ApiKey::UpdateFeatures => 57,
+            ApiKey::DescribeCluster => 60,
+            ApiKey::DescribeProducers => 61,
+            ApiKey::DescribeTransactions => 65,
+            ApiKey::ListTransactions => 66,
+            ApiKey::AllocateProducerIds => 67,
             ApiKey::Unknown(code) => code,
         }
     }
@@ -212,9 +210,9 @@ mod tests {
 
     proptest! {
         #[test]
-        fn test_roundrip_int16(code: Int16) {
+        fn test_roundrip_int16(code: i16) {
             let api_key = ApiKey::from(code);
-            let code2 = Int16::from(api_key);
+            let code2 = i16::from(api_key);
             assert_eq!(code, code2);
         }
 
@@ -226,7 +224,7 @@ mod tests {
                 _ => key,
             };
 
-            let code = Int16::from(key);
+            let code = i16::from(key);
             let key2 = ApiKey::from(code);
             assert_eq!(key, key2);
         }
