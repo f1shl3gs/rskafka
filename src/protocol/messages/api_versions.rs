@@ -246,7 +246,7 @@ where
         let v = version.0;
         assert!(v <= 3);
 
-        let error_code: Int16 = self.error_code.into();
+        let error_code: i16 = self.error_code.map(|err| err.code()).unwrap_or_default();
         error_code.write(writer)?;
 
         if v >= 3 {

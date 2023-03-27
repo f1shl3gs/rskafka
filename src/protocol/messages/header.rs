@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 use crate::protocol::{
     api_key::ApiKey,
     api_version::ApiVersion,
-    primitives::{Int16, Int32, NullableString, TaggedFields},
+    primitives::{Int32, NullableString, TaggedFields},
     traits::{ReadType, WriteType},
 };
 

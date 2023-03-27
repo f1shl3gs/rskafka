@@ -8,7 +8,7 @@ use crate::protocol::traits::{ReadError, ReadType};
 pub struct ApiVersion(pub i16);
 
 impl ApiVersion {
-    pub const fn new(value: i16) -> ApiVersion {
+    pub const fn new(value: i16) -> Self {
         Self(value)
     }
 }
@@ -16,7 +16,7 @@ impl ApiVersion {
 impl<R: Read> ReadType<R> for ApiVersion {
     fn read(reader: &mut R) -> Result<Self, ReadError> {
         let v = i16::read(reader)?;
-        Ok(ApiVersion(v))
+        Ok(Self(v))
     }
 }
 

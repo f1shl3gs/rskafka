@@ -226,7 +226,7 @@ where
 
         let tagged_fields = (v >= 4).then(|| TaggedFields::read(reader)).transpose()?;
 
-        Ok(SyncGroupResponse {
+        Ok(Self {
             throttle_time_ms,
             error_code,
             protocol_type,
