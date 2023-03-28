@@ -41,3 +41,17 @@ where
 {
     fn write(&self, writer: &mut W) -> Result<(), WriteError>;
 }
+
+pub trait WriteCompactType<W>: WriteType<W>
+where
+    W: Write,
+{
+    fn write_compact(&self, writer: &mut W) -> Result<(), WriteError>;
+}
+
+pub trait ReadCompactType<R>: ReadType<R>
+where
+    R: Read,
+{
+    fn read_compact(reader: &mut R) -> Result<Self, ReadError>;
+}

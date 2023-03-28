@@ -23,7 +23,7 @@ pub struct DeleteGroupsRequest {
 }
 
 impl RequestBody for DeleteGroupsRequest {
-    type ResponseBody = DeleteGroupsRequest;
+    type ResponseBody = DeleteGroupsResponse;
 
     const API_KEY: ApiKey = ApiKey::DeleteGroups;
 

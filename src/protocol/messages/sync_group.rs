@@ -7,18 +7,15 @@ use crate::protocol::messages::{
     write_compact_versioned_array, write_versioned_array, ReadVersionedError, ReadVersionedType,
     RequestBody, WriteVersionedError, WriteVersionedType,
 };
-use crate::protocol::primitives::{
-    Bytes, CompactBytes, CompactNullableString, CompactNullableStringRef, CompactStringRef, Int16,
-    Int32, NullableString, String_, TaggedFields,
-};
-use crate::protocol::traits::{ReadType, WriteType};
+use crate::protocol::primitives::TaggedFields;
+use crate::protocol::traits::{ReadCompactType, ReadType, WriteCompactType, WriteType};
 
 pub struct Assignment {
     /// The ID of the member to assign.
     ///
     /// String < 4
     /// CompactString >= 4
-    pub member_id: String_,
+    pub member_id: String,
 
     /// The member assignment.
     ///
@@ -42,13 +39,13 @@ where
         if v < 4 {
             self.member_id.write(writer)?;
         } else {
-            CompactStringRef(self.member_id.0.as_str()).write(writer)?;
+            self.member_id.write_compact(writer)?;
         }
 
         if v < 4 {
-            Bytes(self.assignment.clone()).write(writer)?;
+            self.assignment.write(writer)?;
         } else {
-            CompactBytes(self.assignment.clone()).write(writer)?;
+            self.assignment.write_compact(writer)?;
         }
 
         Ok(())
@@ -60,33 +57,35 @@ pub struct SyncGroupRequest {
     ///
     /// String < 4
     /// CompactString >= 4
-    pub group_id: String_,
+    pub group_id: String,
 
     /// The generation of the group.
-    pub generation_id: Int32,
+    pub generation_id: i32,
 
     /// The member ID assigned by the group.
     ///
     /// String < 4
     /// CompactString >= 4
-    pub member_id: String_,
+    pub member_id: String,
 
     /// The unique identifier of the consumer instance provided by end user.
     ///
     /// Added in version 3.
     /// NullableString == 3
     /// CompactNullableString >= 4
-    pub group_instance_id: NullableString,
+    pub group_instance_id: Option<String>,
 
     /// The group protocol type.
     ///
     /// Added in version 5.
-    pub protocol_type: CompactNullableString,
+    /// CompactNullableString >= 5
+    pub protocol_type: Option<String>,
 
     /// The group proto name.
     ///
     /// Added in version 5.
-    pub protocol_name: CompactNullableString,
+    /// CompactNullableString >= 5
+    pub protocol_name: Option<String>,
 
     /// Each Assignment.
     pub assignments: Vec<Assignment>,
@@ -112,7 +111,7 @@ where
         if v < 4 {
             self.group_id.write(writer)?;
         } else {
-            CompactStringRef(&self.group_id.0).write(writer)?;
+            self.group_id.write_compact(writer)?;
         }
 
         self.generation_id.write(writer)?;
@@ -120,18 +119,18 @@ where
         if v < 4 {
             self.member_id.write(writer)?;
         } else {
-            CompactStringRef(&self.member_id.0).write(writer)?;
+            self.member_id.write_compact(writer)?;
         }
 
         if v == 3 {
             self.group_instance_id.write(writer)?
-        } else {
-            CompactNullableStringRef(self.group_instance_id.0.as_deref()).write(writer)?;
+        } else if v >= 4 {
+            self.group_instance_id.write_compact(writer)?
         }
 
         if v >= 5 {
-            self.protocol_type.write(writer)?;
-            self.protocol_name.write(writer)?;
+            self.protocol_type.write_compact(writer)?;
+            self.protocol_name.write_compact(writer)?;
         }
 
         if v >= 4 {
@@ -163,7 +162,7 @@ pub struct SyncGroupResponse {
     /// quota violation, or zero if the request did not violate any quota.
     ///
     /// Added in version 1.
-    pub throttle_time_ms: Int32,
+    pub throttle_time_ms: i32,
 
     /// The error code, or 0 if there was no error.
     pub error_code: Option<Error>,
@@ -171,12 +170,12 @@ pub struct SyncGroupResponse {
     /// The group protocol type.
     ///
     /// Added in version 5.
-    pub protocol_type: CompactNullableString,
+    pub protocol_type: Option<String>,
 
     /// The group protocol name.
     ///
     /// Added in version 5.
-    pub protocol_name: CompactNullableString,
+    pub protocol_name: Option<String>,
 
     /// The member assignment.
     ///
@@ -198,30 +197,26 @@ where
         let v = version.0;
         assert!(v <= 5);
 
-        let throttle_time_ms = if v >= 1 {
-            Int32::read(reader)?
-        } else {
-            Int32(0)
-        };
+        let throttle_time_ms = if v >= 1 { i32::read(reader)? } else { 0 };
 
-        let error_code = Error::new(Int16::read(reader)?.0);
+        let error_code = Error::new(i16::read(reader)?);
 
         let protocol_type = if v >= 5 {
-            CompactNullableString::read(reader)?
+            ReadCompactType::read_compact(reader)?
         } else {
-            CompactNullableString(None)
+            None
         };
 
         let protocol_name = if v >= 5 {
-            CompactNullableString::read(reader)?
+            ReadCompactType::read_compact(reader)?
         } else {
-            CompactNullableString(None)
+            None
         };
 
         let assignment = if v >= 4 {
-            Bytes::read(reader)?.0
+            ReadType::read(reader)?
         } else {
-            CompactBytes::read(reader)?.0
+            ReadCompactType::read_compact(reader)?
         };
 
         let tagged_fields = (v >= 4).then(|| TaggedFields::read(reader)).transpose()?;

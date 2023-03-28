@@ -19,17 +19,17 @@ pub enum CoordinatorType {
 
 impl CoordinatorType {
     pub fn group() -> Self {
-        CoordinatorType::Group
+        Self::Group
     }
 
     pub fn transaction() -> Self {
-        CoordinatorType::Transaction
+        Self::Transaction
     }
 
     pub fn as_i8(&self) -> i8 {
         match self {
-            CoordinatorType::Group => 0,
-            CoordinatorType::Transaction => 1,
+            Self::Group => 0,
+            Self::Transaction => 1,
         }
     }
 }

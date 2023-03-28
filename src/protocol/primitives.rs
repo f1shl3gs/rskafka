@@ -8,6 +8,7 @@ use std::io::{Cursor, Read, Write};
 
 use integer_encoding::{VarIntReader, VarIntWriter};
 
+use crate::protocol::traits::{ReadCompactType, WriteCompactType};
 #[cfg(test)]
 use proptest::prelude::*;
 
@@ -144,12 +145,28 @@ where
     }
 }
 
+impl<R: Read> ReadType<R> for i32 {
+    fn read(reader: &mut R) -> Result<Self, ReadError> {
+        let mut buf = [0u8; 4];
+        reader.read_exact(&mut buf)?;
+        Ok(i32::from_be_bytes(buf))
+    }
+}
+
 impl<W> WriteType<W> for Int32
 where
     W: Write,
 {
     fn write(&self, writer: &mut W) -> Result<(), WriteError> {
         let buf = self.0.to_be_bytes();
+        writer.write_all(&buf)?;
+        Ok(())
+    }
+}
+
+impl<W: Write> WriteType<W> for i32 {
+    fn write(&self, writer: &mut W) -> Result<(), WriteError> {
+        let buf = self.to_be_bytes();
         writer.write_all(&buf)?;
         Ok(())
     }
@@ -420,6 +437,135 @@ where
     }
 }
 
+// STRING
+impl<R: Read> ReadType<R> for String {
+    fn read(reader: &mut R) -> Result<Self, ReadError> {
+        let len = i16::read(reader)?;
+        let len = usize::try_from(len).map_err(|e| ReadError::Malformed(Box::new(e)))?;
+        let mut buf = VecBuilder::new(len);
+        buf = buf.read_exact(reader)?;
+        let s = String::from_utf8(buf.into()).map_err(|e| ReadError::Malformed(Box::new(e)))?;
+        Ok(s)
+    }
+}
+
+impl<W: Write> WriteType<W> for String {
+    fn write(&self, writer: &mut W) -> Result<(), WriteError> {
+        let len = i16::try_from(self.len()).map_err(WriteError::Overflow)?;
+        len.write(writer)?;
+        writer.write_all(self.as_bytes())?;
+        Ok(())
+    }
+}
+
+// NULLABLE_STRING
+impl<R: Read> ReadType<R> for Option<String> {
+    fn read(reader: &mut R) -> Result<Self, ReadError> {
+        let len = i16::read(reader)?;
+
+        match len {
+            l if l < -1 => Err(ReadError::Malformed(
+                format!("Invalid negative length for nullable string: {}", l).into(),
+            )),
+            -1 => Ok(None),
+            l => {
+                let len = usize::try_from(l)?;
+                let mut buf = VecBuilder::new(len);
+                buf = buf.read_exact(reader)?;
+                let s =
+                    String::from_utf8(buf.into()).map_err(|e| ReadError::Malformed(Box::new(e)))?;
+                Ok(Some(s))
+            }
+        }
+    }
+}
+
+impl<W: Write> WriteType<W> for Option<String> {
+    fn write(&self, writer: &mut W) -> Result<(), WriteError> {
+        match &self {
+            Some(s) => {
+                let l =
+                    i16::try_from(s.len()).map_err(|err| WriteError::Malformed(Box::new(err)))?;
+                l.write(writer)?;
+                writer.write_all(s.as_bytes())?;
+                Ok(())
+            }
+            None => Int16(-1).write(writer),
+        }
+    }
+}
+
+// COMPACT_STRING
+impl<R: Read> ReadCompactType<R> for String {
+    fn read_compact(reader: &mut R) -> Result<Self, ReadError> {
+        let len = UnsignedVarint::read(reader)?;
+
+        match len.0 {
+            0 => Err(ReadError::Malformed(
+                "CompactString must have non-zero length".into(),
+            )),
+            len => {
+                let len = usize::try_from(len)?;
+                let len = len - 1;
+
+                let mut buf = VecBuilder::new(len);
+                buf = buf.read_exact(reader)?;
+
+                let s =
+                    String::from_utf8(buf.into()).map_err(|e| ReadError::Malformed(Box::new(e)))?;
+                Ok(s)
+            }
+        }
+    }
+}
+
+impl<W: Write> WriteCompactType<W> for String {
+    fn write_compact(&self, writer: &mut W) -> Result<(), WriteError> {
+        let len = u64::try_from(self.len() + 1).map_err(WriteError::Overflow)?;
+        UnsignedVarint(len).write(writer)?;
+        writer.write_all(self.as_bytes())?;
+        Ok(())
+    }
+}
+
+// COMPACT_NULLABLE_STRING
+impl<R: Read> ReadCompactType<R> for Option<String> {
+    fn read_compact(reader: &mut R) -> Result<Self, ReadError> {
+        let len = UnsignedVarint::read(reader)?;
+
+        match len.0 {
+            0 => Ok(None),
+            len => {
+                let len = usize::try_from(len)?;
+                let len = len - 1;
+
+                let mut buf = VecBuilder::new(len);
+                buf = buf.read_exact(reader)?;
+
+                let s =
+                    String::from_utf8(buf.into()).map_err(|e| ReadError::Malformed(Box::new(e)))?;
+                Ok(Some(s))
+            }
+        }
+    }
+}
+
+impl<W: Write> WriteCompactType<W> for Option<String> {
+    fn write_compact(&self, writer: &mut W) -> Result<(), WriteError> {
+        match &self {
+            Some(s) => {
+                let len = u64::try_from(s.len() + 1).map_err(WriteError::Overflow)?;
+                UnsignedVarint(len).write(writer)?;
+                writer.write_all(s.as_bytes())?;
+            }
+            None => {
+                UnsignedVarint(0).write(writer)?;
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Same as [`CompactString`] but contains referenced data.
 ///
 /// This only supports writing.
@@ -572,6 +718,46 @@ where
     }
 }
 
+impl<R: Read> ReadType<R> for Vec<u8> {
+    fn read(reader: &mut R) -> Result<Self, ReadError> {
+        let len = Int32::read(reader)?;
+        match len.0 {
+            l if l < 0 => Err(ReadError::Malformed(
+                format!("Invalid length for bytes: {}", l).into(),
+            )),
+            0 => Ok(vec![]),
+            l => {
+                let len = usize::try_from(l)?;
+                let mut buf = VecBuilder::new(len);
+                buf = buf.read_exact(reader)?;
+                Ok(buf.into())
+            }
+        }
+    }
+}
+
+impl<R: Read> ReadCompactType<R> for Vec<u8> {
+    fn read_compact(reader: &mut R) -> Result<Self, ReadError> {
+        let len = UnsignedVarint::read(reader)?;
+
+        match len.0 {
+            0 => Err(ReadError::Malformed(
+                "CompactBytes must have non-zero length".into(),
+            )),
+
+            len => {
+                let len = usize::try_from(len)?;
+                let len = len - 1;
+
+                let mut buf = VecBuilder::new(len);
+                buf = buf.read_exact(reader)?;
+
+                Ok(buf.into())
+            }
+        }
+    }
+}
+
 impl<W> WriteType<W> for Bytes
 where
     W: Write,
@@ -586,6 +772,29 @@ where
             writer.write_all(&self.0)?;
             Ok(())
         }
+    }
+}
+
+impl<W: Write> WriteType<W> for Vec<u8> {
+    fn write(&self, writer: &mut W) -> Result<(), WriteError> {
+        if self.is_empty() {
+            Int32(0).write(writer)
+        } else {
+            let l =
+                i32::try_from(self.len()).map_err(|err| WriteError::Malformed(Box::new(err)))?;
+            Int32(l).write(writer)?;
+            writer.write_all(&self)?;
+            Ok(())
+        }
+    }
+}
+
+impl<W: Write> WriteCompactType<W> for Vec<u8> {
+    fn write_compact(&self, writer: &mut W) -> Result<(), WriteError> {
+        let len = u64::try_from(self.len() + 1).map_err(WriteError::Overflow)?;
+        UnsignedVarint(len).write(writer)?;
+        writer.write_all(&self)?;
+        Ok(())
     }
 }
 
@@ -914,6 +1123,8 @@ mod tests {
             assert!(Boolean::read(&mut Cursor::new(vec![v])).unwrap().0);
         }
     }
+
+    test_roundtrip!(i16, test_i16_roundtrip);
 
     test_roundtrip!(Int8, test_int8_roundtrip);
 
