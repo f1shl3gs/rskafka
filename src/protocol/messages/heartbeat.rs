@@ -6,24 +6,23 @@ use crate::protocol::error::Error;
 use crate::protocol::messages::{
     ReadVersionedError, ReadVersionedType, RequestBody, WriteVersionedError, WriteVersionedType,
 };
-use crate::protocol::primitives::{Int16, Int32, NullableString, String_};
 use crate::protocol::traits::{ReadType, WriteType};
 
 #[derive(Debug)]
 pub struct HeartbeatRequest {
     /// The group id.
-    pub group_id: String_,
+    pub group_id: String,
 
     /// The generation of the group.
-    pub generation_id: Int32,
+    pub generation_id: i32,
 
     /// The member ID
-    pub member_id: String_,
+    pub member_id: String,
 
     /// The unique identifier of the consumer instance provided by end user.
     ///
     /// Added in version 3.
-    pub group_instance_id: NullableString,
+    pub group_instance_id: Option<String>,
 }
 
 impl<W> WriteVersionedType<W> for HeartbeatRequest
@@ -64,7 +63,7 @@ impl RequestBody for HeartbeatRequest {
 pub struct HeartbeatResponse {
     /// The duration in milliseconds for which the request was throttled due to a
     /// quota violation, or zero if the request did not violate any quota.
-    pub throttle_time_ms: Int32,
+    pub throttle_time_ms: i32,
 
     /// The error code, or 0 if there was no error.
     pub error_code: Option<Error>,
@@ -78,8 +77,8 @@ where
         let v = version.0;
         assert!(v <= 3);
 
-        let throttle_time_ms = Int32::read(reader)?;
-        let error_code = Error::new(Int16::read(reader)?.0);
+        let throttle_time_ms = i32::read(reader)?;
+        let error_code = Error::new(i16::read(reader)?);
 
         Ok(Self {
             throttle_time_ms,

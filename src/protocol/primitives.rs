@@ -190,12 +190,28 @@ where
     }
 }
 
+impl<R: Read> ReadType<R> for i64 {
+    fn read(reader: &mut R) -> Result<Self, ReadError> {
+        let mut buf = [0u8; 8];
+        reader.read_exact(&mut buf)?;
+        Ok(i64::from_be_bytes(buf))
+    }
+}
+
 impl<W> WriteType<W> for Int64
 where
     W: Write,
 {
     fn write(&self, writer: &mut W) -> Result<(), WriteError> {
         let buf = self.0.to_be_bytes();
+        writer.write_all(&buf)?;
+        Ok(())
+    }
+}
+
+impl<W: Write> WriteType<W> for i64 {
+    fn write(&self, writer: &mut W) -> Result<(), WriteError> {
+        let buf = self.to_be_bytes();
         writer.write_all(&buf)?;
         Ok(())
     }
@@ -1096,6 +1112,54 @@ where
         }
         NullableBytes(Some(buf)).write(writer)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod native_permitives_tests {
+    use super::*;
+
+    #[test]
+    fn compact_string() {
+        let s = "foobar".to_string();
+        let mut cs = Vec::new();
+        CompactStringRef(&s).write(&mut cs).unwrap();
+
+        let mut buf = Vec::new();
+        s.write_compact(&mut buf).unwrap();
+
+        assert_eq!(buf, cs);
+
+        let mut reader = Cursor::new(&buf);
+        let cs = CompactString::read(&mut reader).unwrap();
+        assert_eq!(cs.0, s);
+    }
+
+    #[test]
+    fn compact_nullable_string() {
+        let ns: Option<String> = None;
+
+        let mut buf = Vec::new();
+        ns.write_compact(&mut buf).unwrap();
+
+        let mut buf2 = Vec::new();
+        CompactNullableString(None).write(&mut buf2).unwrap();
+        assert_eq!(buf, buf2);
+
+
+        let s = Some("foobar".to_string());
+        let mut buf = Vec::new();
+        s.write_compact(&mut buf).unwrap();
+
+        let mut buf2 = Vec::new();
+        CompactNullableString(s).write(&mut buf2).unwrap();
+
+        assert_eq!(buf, buf2);
+    }
+
+    #[test]
+    fn compact_bytes() {
+
     }
 }
 

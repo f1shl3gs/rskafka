@@ -16,6 +16,7 @@ pub mod error;
 pub(crate) mod metadata_cache;
 pub mod partition;
 pub mod producer;
+pub mod consumer_group;
 
 use crate::client::error::{ProtocolError, RequestContext};
 use crate::connection::Broker;

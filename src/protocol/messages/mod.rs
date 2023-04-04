@@ -38,13 +38,15 @@ mod produce;
 pub use produce::*;
 mod delete_groups;
 mod describe_groups;
-mod heartbeat;
+pub mod heartbeat;
 pub mod join_group;
 pub use join_group::*;
 pub mod find_coordinator;
 mod leave_group;
 pub mod list_groups;
 mod sync_group;
+pub use sync_group::*;
+pub mod offset_commit;
 #[cfg(test)]
 mod test_utils;
 

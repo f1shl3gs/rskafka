@@ -7,16 +7,19 @@ use crate::protocol::messages::{
     read_versioned_array, write_versioned_array, ReadVersionedError, ReadVersionedType,
     RequestBody, WriteVersionedError, WriteVersionedType,
 };
-use crate::protocol::primitives::{Bytes, Int16, Int32, NullableString, String_};
 use crate::protocol::traits::{ReadType, WriteType};
 
 /// The list of protocols that the member supports.
+#[derive(Clone, Debug)]
 pub struct Protocol {
     /// The protocol name.
-    pub name: String_,
+    ///
+    /// The value could be "range", "roundrobin" or "sticky",
+    /// maybe we should use enum for this field.
+    pub name: String,
 
     /// The protocol metadata.
-    pub metadata: Bytes,
+    pub metadata: Vec<u8>,
 }
 
 impl<W> WriteVersionedType<W> for Protocol
@@ -34,30 +37,31 @@ where
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct JoinGroupRequest {
     /// The group identifier.
-    pub group_id: String_,
+    pub group_id: String,
 
     /// The coordinator considers the consumer dead if it receives no heartbeat after
     /// this timeout in milliseconds.
-    pub session_timeout_ms: Int32,
+    pub session_timeout_ms: i32,
 
     /// The maximum time in milliseconds that the coordinator will wait for each
     /// member to rejoin when rebalancing the group.
     ///
     /// Added in version 2.
-    pub rebalance_timeout_ms: Int32,
+    pub rebalance_timeout_ms: i32,
 
     /// The member id assigned by the group coordinator.
-    pub member_id: String_,
+    pub member_id: String,
 
     /// The unique identifier of the consumer instance provided by end user.
     ///
     /// Added in version 5.
-    pub group_instance_id: NullableString,
+    pub group_instance_id: Option<String>,
 
     /// The unique name the for class of protocols implemented by the group we want to join.
-    pub protocol_type: String_,
+    pub protocol_type: String,
 
     /// The list of protocols that the member supports.
     pub protocols: Vec<Protocol>,
@@ -104,17 +108,18 @@ where
     }
 }
 
+#[derive(Debug)]
 pub struct Member {
     /// The group member ID.
-    pub member_id: String_,
+    pub member_id: String,
 
     /// The unique identifier of the consumer instance provided by end user.
     ///
     /// Added in version 5.
-    pub group_instance_id: Option<NullableString>,
+    pub group_instance_id: Option<String>,
 
     /// The group member metadata.
-    pub metadata: Bytes,
+    pub metadata: Vec<u8>,
 }
 
 impl<R> ReadVersionedType<R> for Member
@@ -125,9 +130,9 @@ where
         let v = version.0;
         assert!(v <= 5);
 
-        let member_id = String_::read(reader)?;
-        let group_instance_id = (v >= 5).then(|| NullableString::read(reader)).transpose()?;
-        let metadata = Bytes::read(reader)?;
+        let member_id = String::read(reader)?;
+        let group_instance_id = ReadType::read(reader)?;
+        let metadata = ReadType::read(reader)?;
 
         Ok(Self {
             member_id,
@@ -137,27 +142,28 @@ where
     }
 }
 
+#[derive(Debug)]
 pub struct JoinGroupResponse {
     /// The duration in milliseconds for which the request was throttled
     /// due to a quota violation, or zero if the request did not violate any quota.
     ///
     /// Added in version 2.
-    pub throttle_time_ms: Option<Int32>,
+    pub throttle_time_ms: Option<i32>,
 
     /// The error code, or 0 if there was no error.
     pub error_code: Option<Error>,
 
     /// The generation ID of the group.
-    pub generation_id: Int32,
+    pub generation_id: i32,
 
     /// The group protocol selected by the coordinator.
-    pub protocol_name: String_,
+    pub protocol_name: String,
 
     /// The leader of the group.
-    pub leader: String_,
+    pub leader: String,
 
     /// The member ID assigned by the group coordinator.
-    pub member_id: String_,
+    pub member_id: String,
 
     pub members: Vec<Member>,
 }
@@ -170,12 +176,12 @@ where
         let v = version.0;
         assert!(v <= 5);
 
-        let throttle_time_ms = (v >= 2).then(|| Int32::read(reader)).transpose()?;
-        let error_code = Error::new(Int16::read(reader)?.0);
-        let generation_id = Int32::read(reader)?;
-        let protocol_name = String_::read(reader)?;
-        let leader = String_::read(reader)?;
-        let member_id = String_::read(reader)?;
+        let throttle_time_ms = (v >= 2).then(|| i32::read(reader)).transpose()?;
+        let error_code = Error::new(i16::read(reader)?);
+        let generation_id = i32::read(reader)?;
+        let protocol_name = String::read(reader)?;
+        let leader = String::read(reader)?;
+        let member_id = String::read(reader)?;
         let members = read_versioned_array(reader, version)?.unwrap_or_default();
 
         Ok(Self {

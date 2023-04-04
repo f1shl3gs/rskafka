@@ -6,6 +6,7 @@ use tracing::warn;
 
 use crate::{backoff::ErrorOrThrottle, protocol::primitives::Int32};
 
+// TODO: use Option<i32>
 pub fn maybe_throttle<E>(throttle_time_ms: Option<Int32>) -> Result<(), ErrorOrThrottle<E>>
 where
     E: Send,
