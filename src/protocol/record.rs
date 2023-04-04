@@ -342,15 +342,6 @@ pub struct RecordBatch {
     pub timestamp_type: RecordBatchTimestampType,
 }
 
-impl RecordBatch {
-    pub fn byte_size(&self) -> usize {
-        4  // base_offset
-            + 2 // partition_leader_epoch
-            + 2 // last_offset_delta: i32
-            + 1 // magic
-    }
-}
-
 impl<R> ReadType<R> for RecordBatch
 where
     R: Read,
