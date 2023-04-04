@@ -11,7 +11,7 @@ use thiserror::Error;
 use super::{
     api_key::ApiKey,
     api_version::{ApiVersion, ApiVersionRange},
-    primitives::{Int32, UnsignedVarint},
+    primitives::UnsignedVarint,
     traits::{ReadError, ReadType, WriteError, WriteType},
     vec_builder::VecBuilder,
 };
@@ -147,7 +147,7 @@ fn read_versioned_array<R: Read, T: ReadVersionedType<R>>(
     reader: &mut R,
     version: ApiVersion,
 ) -> Result<Option<Vec<T>>, ReadVersionedError> {
-    let len = Int32::read(reader)?.0;
+    let len = i32::read(reader)?;
     match len {
         -1 => Ok(None),
         l if l < -1 => Err(ReadVersionedError::ReadError(ReadError::Malformed(
@@ -176,10 +176,10 @@ fn write_versioned_array<W: Write, T: WriteVersionedType<W>>(
     data: Option<&[T]>,
 ) -> Result<(), WriteVersionedError> {
     match data {
-        None => Ok(Int32(-1).write(writer)?),
+        None => Ok((-1i32).write(writer)?),
         Some(inner) => {
             let len = i32::try_from(inner.len()).map_err(WriteError::from)?;
-            Int32(len).write(writer)?;
+            len.write(writer)?;
 
             for element in inner {
                 element.write_versioned(writer, version)?
@@ -260,14 +260,14 @@ mod tests {
             version: ApiVersion,
         ) -> Result<(), WriteVersionedError> {
             assert_eq!(version, self.version);
-            Int32(42).write(writer)?;
+            (42i32).write(writer)?;
             Ok(())
         }
     }
 
     impl<R: Read> ReadVersionedType<R> for VersionTest {
         fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-            assert_eq!(Int32::read(reader)?.0, 42);
+            assert_eq!(i32::read(reader)?, 42);
             Ok(Self { version })
         }
     }
@@ -302,7 +302,7 @@ mod tests {
     #[test]
     fn test_read_versioned_blowup_memory() {
         let mut buf = Cursor::new(Vec::<u8>::new());
-        Int32(i32::MAX).write(&mut buf).unwrap();
+        i32::MAX.write(&mut buf).unwrap();
         buf.set_position(0);
 
         let err = read_versioned_array::<_, VersionTest>(&mut buf, ApiVersion(42)).unwrap_err();

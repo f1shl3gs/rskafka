@@ -6,18 +6,18 @@ use crate::{
     build_info::DEFAULT_CLIENT_ID,
     client::partition::PartitionClient,
     connection::{BrokerConnector, MetadataLookupMode, TlsConfig},
-    protocol::primitives::Boolean,
     topic::Topic,
 };
 
 pub mod consumer;
+pub mod consumer_group;
 pub mod controller;
 pub mod error;
 pub(crate) mod metadata_cache;
 pub mod partition;
 pub mod producer;
-pub mod consumer_group;
 
+use crate::client::consumer_group::ConsumerGroup;
 use crate::client::error::{ProtocolError, RequestContext};
 use crate::connection::Broker;
 use crate::topic::Partition;
@@ -130,6 +130,14 @@ impl Client {
         Ok(ControllerClient::new(Arc::clone(&self.brokers)))
     }
 
+    pub async fn consumer_group(
+        &self,
+        group: String,
+        topics: Vec<String>,
+    ) -> Result<ConsumerGroup> {
+        todo!()
+    }
+
     /// Returns a client for performing operations on a specific partition
     pub async fn partition_client(
         &self,
@@ -169,27 +177,19 @@ impl Client {
         Ok(response
             .topics
             .into_iter()
-            .filter(|t| !matches!(t.is_internal, Some(Boolean(true))))
+            .filter(|t| !matches!(t.is_internal, Some(true)))
             .map(|t| Topic {
-                name: t.name.0,
+                name: t.name,
                 partitions: t
                     .partitions
                     .into_iter()
                     .map(|p| {
                         (
-                            p.partition_index.0,
+                            p.partition_index,
                             Partition {
-                                leader_id: p.leader_id.0,
-                                replica_nodes: p
-                                    .replica_nodes
-                                    .0
-                                    .map(|s| s.iter().map(|v| v.0).collect::<Vec<_>>())
-                                    .unwrap_or_default(),
-                                isr_nodes: p
-                                    .isr_nodes
-                                    .0
-                                    .map(|s| s.iter().map(|v| v.0).collect::<Vec<_>>())
-                                    .unwrap_or_default(),
+                                leader_id: p.leader_id,
+                                replica_nodes: p.replica_nodes,
+                                isr_nodes: p.isr_nodes,
                             },
                         )
                     })
@@ -226,21 +226,15 @@ impl Client {
                         .iter()
                         .map(|p| {
                             (
-                                p.partition_index.0,
+                                p.partition_index,
                                 Partition {
-                                    leader_id: p.leader_id.0,
+                                    leader_id: p.leader_id,
                                     replica_nodes: p
                                         .replica_nodes
-                                        .0
-                                        .as_ref()
-                                        .map(|s| s.iter().map(|v| v.0).collect::<Vec<_>>())
-                                        .unwrap_or_default(),
-                                    isr_nodes: p
-                                        .isr_nodes
-                                        .0
-                                        .as_ref()
-                                        .map(|s| s.iter().map(|v| v.0).collect::<Vec<_>>())
-                                        .unwrap_or_default(),
+                                        .iter()
+                                        .cloned()
+                                        .collect::<Vec<_>>(),
+                                    isr_nodes: p.isr_nodes.iter().cloned().collect::<Vec<_>>(),
                                 },
                             )
                         })

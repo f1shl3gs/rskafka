@@ -34,7 +34,6 @@ pub enum RequestContext {
 ///
 /// This is data that the broker sent and that is still usable despite the error.
 #[derive(Debug)]
-#[allow(missing_copy_implementations)] // wanna extend this later
 #[non_exhaustive]
 pub enum ServerErrorResponse {
     /// A broker that we thought was the partition leader forwarded us to another leader.

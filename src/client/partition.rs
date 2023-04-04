@@ -264,7 +264,7 @@ impl PartitionClient {
 
         let records = extract_records(partition.records.0, offset)?;
 
-        Ok((records, partition.high_watermark.0))
+        Ok((records, partition.high_watermark))
     }
 
     /// Get offset for this partition.
@@ -298,7 +298,7 @@ impl PartitionClient {
         )
         .await?;
 
-        extract_offset(partition)
+        Ok(partition.offset)
     }
 
     /// Delete records whose offset is smaller than the given offset.
@@ -349,10 +349,10 @@ impl PartitionClient {
             .exactly_one()
             .map_err(Error::exactly_one_topic)?;
 
-        if topic.name.0 != self.topic {
+        if topic.name != self.topic {
             return Err(Error::InvalidResponse(format!(
                 "Expected metadata for topic \"{}\" got \"{}\"",
-                self.topic, topic.name.0
+                self.topic, topic.name
             )));
         }
 
@@ -370,7 +370,7 @@ impl PartitionClient {
         let partition = topic
             .partitions
             .iter()
-            .find(|p| p.partition_index.0 == self.partition)
+            .find(|p| p.partition_index == self.partition)
             .ok_or_else(|| {
                 Error::InvalidResponse(format!(
                     "Could not find metadata for partition {} in topic \"{}\"",
@@ -389,7 +389,7 @@ impl PartitionClient {
             });
         }
 
-        if partition.leader_id.0 == -1 {
+        if partition.leader_id == -1 {
             return Err(Error::ServerError {
                 protocol_error: ProtocolError::LeaderNotAvailable,
                 error_message: None,
@@ -402,11 +402,11 @@ impl PartitionClient {
         info!(
             topic=%self.topic,
             partition=%self.partition,
-            leader=partition.leader_id.0,
+            leader=partition.leader_id,
             %metadata_mode,
             "Detected leader",
         );
-        Ok((partition.leader_id.0, gen))
+        Ok((partition.leader_id, gen))
     }
 }
 
@@ -676,7 +676,7 @@ fn build_produce_request(
         .collect();
 
     let record_batch = ProduceRequestPartitionData {
-        index: Int32(partition),
+        index: partition,
         records: Records(vec![RecordBatch {
             base_offset: 0,
             partition_leader_epoch: 0,
@@ -704,11 +704,11 @@ fn build_produce_request(
     };
 
     ProduceRequest {
-        transactional_id: crate::protocol::primitives::NullableString(None),
-        acks: Int16(-1),
-        timeout_ms: Int32(30_000),
+        transactional_id: None,
+        acks: -1,
+        timeout_ms: 30_000,
         topic_data: vec![ProduceRequestTopicData {
-            name: String_(topic.to_string()),
+            name: topic.to_string(),
             partition_data: vec![record_batch],
         }],
     }
@@ -725,10 +725,10 @@ fn process_produce_response(
         .exactly_one()
         .map_err(Error::exactly_one_topic)?;
 
-    if response.name.0 != topic {
+    if response.name != topic {
         return Err(Error::InvalidResponse(format!(
             "Expected write for topic \"{}\" got \"{}\"",
-            topic, response.name.0,
+            topic, response.name,
         )));
     }
 
@@ -737,10 +737,10 @@ fn process_produce_response(
         .exactly_one()
         .map_err(Error::exactly_one_partition)?;
 
-    if response.index.0 != partition {
+    if response.index != partition {
         return Err(Error::InvalidResponse(format!(
             "Expected partition {} for topic \"{}\" got {}",
-            partition, topic, response.index.0,
+            partition, topic, response.index,
         )));
     }
 
@@ -752,9 +752,7 @@ fn process_produce_response(
             response: None,
             is_virtual: false,
         }),
-        None => Ok((0..num_records)
-            .map(|x| x + response.base_offset.0)
-            .collect()),
+        None => Ok((0..num_records).map(|x| x + response.base_offset).collect()),
     }
 }
 
@@ -767,16 +765,16 @@ fn build_fetch_request(
 ) -> FetchRequest {
     FetchRequest {
         replica_id: NORMAL_CONSUMER,
-        max_wait_ms: Int32(max_wait_ms),
-        min_bytes: Int32(bytes.start),
-        max_bytes: Some(Int32(bytes.end.saturating_sub(1))),
+        max_wait_ms,
+        min_bytes: bytes.start,
+        max_bytes: Some(bytes.end.saturating_sub(1)),
         isolation_level: Some(IsolationLevel::ReadCommitted),
         topics: vec![FetchRequestTopic {
-            topic: String_(topic.to_string()),
+            topic: topic.to_string(),
             partitions: vec![FetchRequestPartition {
-                partition: Int32(partition),
-                fetch_offset: Int64(offset),
-                partition_max_bytes: Int32(bytes.end.saturating_sub(1)),
+                partition,
+                fetch_offset: offset,
+                partition_max_bytes: bytes.end.saturating_sub(1),
             }],
         }],
     }
@@ -793,10 +791,10 @@ fn process_fetch_response(
         .exactly_one()
         .map_err(Error::exactly_one_topic)?;
 
-    if response_topic.topic.0 != topic {
+    if response_topic.topic != topic {
         return Err(Error::InvalidResponse(format!(
             "Expected data for topic '{}' but got data for topic '{}'",
-            topic, response_topic.topic.0
+            topic, response_topic.topic
         )));
     }
 
@@ -805,10 +803,10 @@ fn process_fetch_response(
         .exactly_one()
         .map_err(Error::exactly_one_partition)?;
 
-    if response_partition.partition_index.0 != partition {
+    if response_partition.partition_index != partition {
         return Err(Error::InvalidResponse(format!(
             "Expected data for partition {} but got data for partition {}",
-            partition, response_partition.partition_index.0
+            partition, response_partition.partition_index
         )));
     }
 
@@ -822,8 +820,8 @@ fn process_fetch_response(
                 offset: request_offset,
             },
             response: Some(ServerErrorResponse::PartitionFetchState {
-                high_watermark: response_partition.high_watermark.0,
-                last_stable_offset: response_partition.last_stable_offset.map(|x| x.0),
+                high_watermark: response_partition.high_watermark,
+                last_stable_offset: response_partition.last_stable_offset,
             }),
             is_virtual: false,
         });
@@ -899,7 +897,11 @@ fn extract_records(
     Ok(records)
 }
 
-fn build_list_offsets_request(partition: i32, topic: &str, at: OffsetAt) -> ListOffsetsRequest {
+fn build_list_offsets_request(
+    partition_index: i32,
+    topic: &str,
+    at: OffsetAt,
+) -> ListOffsetsRequest {
     let timestamp = match at {
         OffsetAt::Earliest => -2,
         OffsetAt::Latest => -1,
@@ -909,11 +911,11 @@ fn build_list_offsets_request(partition: i32, topic: &str, at: OffsetAt) -> List
         replica_id: NORMAL_CONSUMER,
         isolation_level: Some(IsolationLevel::ReadCommitted),
         topics: vec![ListOffsetsRequestTopic {
-            name: String_(topic.to_owned()),
+            name: topic.to_owned(),
             partitions: vec![ListOffsetsRequestPartition {
-                partition_index: Int32(partition),
-                timestamp: Int64(timestamp),
-                max_num_offsets: Some(Int32(1)),
+                partition_index,
+                timestamp,
+                max_num_offsets: Some(1),
             }],
         }],
     }
@@ -929,10 +931,10 @@ fn process_list_offsets_response(
         .exactly_one()
         .map_err(Error::exactly_one_topic)?;
 
-    if response_topic.name.0 != topic {
+    if response_topic.name != topic {
         return Err(Error::InvalidResponse(format!(
             "Expected data for topic '{}' but got data for topic '{}'",
-            topic, response_topic.name.0
+            topic, response_topic.name
         )));
     }
 
@@ -941,10 +943,10 @@ fn process_list_offsets_response(
         .exactly_one()
         .map_err(Error::exactly_one_partition)?;
 
-    if response_partition.partition_index.0 != partition {
+    if response_partition.partition_index != partition {
         return Err(Error::InvalidResponse(format!(
             "Expected data for partition {} but got data for partition {}",
-            partition, response_partition.partition_index.0
+            partition, response_partition.partition_index
         )));
     }
 
@@ -960,30 +962,6 @@ fn process_list_offsets_response(
     }
 }
 
-fn extract_offset(partition: ListOffsetsResponsePartition) -> Result<i64> {
-    match (
-        partition.old_style_offsets.as_ref(),
-        partition.offset.as_ref(),
-    ) {
-        // old style
-        (Some(offsets), None) => match offsets.0.as_ref() {
-            Some(offsets) => match offsets.len() {
-                1 => Ok(offsets[0].0),
-                n => Err(Error::InvalidResponse(format!(
-                    "Expected 1 offset to be returned but got {}",
-                    n
-                ))),
-            },
-            None => Err(Error::InvalidResponse(
-                "Got NULL as offset array".to_owned(),
-            )),
-        },
-        // new style
-        (None, Some(offset)) => Ok(offset.0),
-        _ => unreachable!(),
-    }
-}
-
 fn build_delete_records_request(
     offset: i64,
     timeout_ms: i32,
@@ -992,15 +970,15 @@ fn build_delete_records_request(
 ) -> DeleteRecordsRequest {
     DeleteRecordsRequest {
         topics: vec![DeleteRequestTopic {
-            name: String_(topic.to_string()),
+            name: topic.to_string(),
             partitions: vec![DeleteRequestPartition {
-                partition_index: Int32(partition),
-                offset: Int64(offset),
+                partition_index: partition,
+                offset,
                 tagged_fields: None,
             }],
             tagged_fields: None,
         }],
-        timeout_ms: Int32(timeout_ms),
+        timeout_ms,
         tagged_fields: None,
     }
 }
@@ -1015,10 +993,10 @@ fn process_delete_records_response(
         .exactly_one()
         .map_err(Error::exactly_one_topic)?;
 
-    if response_topic.name.0 != topic {
+    if response_topic.name != topic {
         return Err(Error::InvalidResponse(format!(
             "Expected data for topic '{}' but got data for topic '{}'",
-            topic, response_topic.name.0
+            topic, response_topic.name
         )));
     }
 
@@ -1027,10 +1005,10 @@ fn process_delete_records_response(
         .exactly_one()
         .map_err(Error::exactly_one_partition)?;
 
-    if response_partition.partition_index.0 != partition {
+    if response_partition.partition_index != partition {
         return Err(Error::InvalidResponse(format!(
             "Expected data for partition {} but got data for partition {}",
-            partition, response_partition.partition_index.0
+            partition, response_partition.partition_index
         )));
     }
 

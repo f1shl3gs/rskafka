@@ -1,5 +1,6 @@
 use std::io::{Read, Write};
 
+use crate::protocol::traits::{ReadCompactType, WriteCompactType};
 use crate::protocol::{
     api_key::ApiKey,
     api_version::{ApiVersion, ApiVersionRange},
@@ -8,20 +9,17 @@ use crate::protocol::{
         read_compact_versioned_array, read_versioned_array, ReadVersionedError, ReadVersionedType,
         RequestBody, WriteVersionedError, WriteVersionedType,
     },
-    primitives::{
-        Array, CompactArrayRef, CompactNullableString, CompactString, CompactStringRef, Int16,
-        Int32, String_, TaggedFields,
-    },
+    primitives::TaggedFields,
     traits::{ReadType, WriteType},
 };
 
 #[derive(Debug)]
 pub struct DeleteTopicsRequest {
     /// The names of the topics to delete.
-    pub topic_names: Array<String_>,
+    pub topic_names: Vec<String>,
 
     /// The length of time in milliseconds to wait for the deletions to complete.
-    pub timeout_ms: Int32,
+    pub timeout_ms: i32,
 
     /// The tagged fields.
     ///
@@ -53,15 +51,7 @@ where
         assert!(v <= 5);
 
         if v >= 4 {
-            if let Some(topic_names) = self.topic_names.0.as_ref() {
-                let topic_names: Vec<_> = topic_names
-                    .iter()
-                    .map(|name| CompactStringRef(name.0.as_str()))
-                    .collect();
-                CompactArrayRef(Some(&topic_names)).write(writer)?;
-            } else {
-                CompactArrayRef::<CompactStringRef<'_>>(None).write(writer)?;
-            }
+            self.topic_names.write_compact(writer)?;
         } else {
             self.topic_names.write(writer)?;
         };
@@ -69,14 +59,7 @@ where
         self.timeout_ms.write(writer)?;
 
         if v >= 4 {
-            match self.tagged_fields.as_ref() {
-                Some(tagged_fields) => {
-                    tagged_fields.write(writer)?;
-                }
-                None => {
-                    TaggedFields::default().write(writer)?;
-                }
-            }
+            self.tagged_fields.write(writer)?;
         }
 
         Ok(())
@@ -89,7 +72,7 @@ pub struct DeleteTopicsResponse {
     /// request did not violate any quota.
     ///
     /// Added in version 1.
-    pub throttle_time_ms: Option<Int32>,
+    pub throttle_time_ms: Option<i32>,
 
     /// The results for each topic we tried to delete.
     pub responses: Vec<DeleteTopicsResponseTopic>,
@@ -108,7 +91,7 @@ where
         let v = version.0;
         assert!(v <= 5);
 
-        let throttle_time_ms = (v >= 1).then(|| Int32::read(reader)).transpose()?;
+        let throttle_time_ms = (v >= 1).then(|| i32::read(reader)).transpose()?;
         let responses = if v >= 4 {
             read_compact_versioned_array(reader, version)?.unwrap_or_default()
         } else {
@@ -127,7 +110,7 @@ where
 #[derive(Debug)]
 pub struct DeleteTopicsResponseTopic {
     /// The topic name.
-    pub name: String_,
+    pub name: String,
 
     /// The error code, or 0 if there was no error.
     pub error: Option<Error>,
@@ -135,7 +118,7 @@ pub struct DeleteTopicsResponseTopic {
     /// The error message, or null if there was no error.
     ///
     /// Added in version 5.
-    pub error_message: Option<CompactNullableString>,
+    pub error_message: Option<String>,
 
     /// The tagged fields.
     ///
@@ -152,13 +135,13 @@ where
         assert!(v <= 5);
 
         let name = if v >= 4 {
-            String_(CompactString::read(reader)?.0)
+            String::read_compact(reader)?
         } else {
-            String_::read(reader)?
+            String::read(reader)?
         };
-        let error = Error::new(Int16::read(reader)?.0);
+        let error = Error::new(i16::read(reader)?);
         let error_message = (v >= 5)
-            .then(|| CompactNullableString::read(reader))
+            .then(|| ReadCompactType::read_compact(reader))
             .transpose()?;
         let tagged_fields = (v >= 4).then(|| TaggedFields::read(reader)).transpose()?;
 

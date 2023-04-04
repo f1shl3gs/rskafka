@@ -6,12 +6,10 @@ use crate::protocol::error::Error;
 use crate::protocol::messages::{
     ReadVersionedError, ReadVersionedType, RequestBody, WriteVersionedError, WriteVersionedType,
 };
-use crate::protocol::primitives::{
-    CompactNullableString, CompactString, CompactStringRef, Int16, Int32, Int8, NullableString,
-    String_, TaggedFields,
-};
-use crate::protocol::traits::{ReadType, WriteType};
+use crate::protocol::primitives::TaggedFields;
+use crate::protocol::traits::{ReadCompactType, ReadType, WriteCompactType, WriteType};
 
+#[derive(Debug)]
 pub enum CoordinatorType {
     Group,
     Transaction,
@@ -34,11 +32,13 @@ impl CoordinatorType {
     }
 }
 
+#[derive(Debug)]
 pub struct FindCoordinatorRequest {
     /// The coordinator key.
     ///
-    /// Changed type to COMPACT_STRING in version 3.
-    pub key: String_,
+    /// STRING < 3
+    /// COMPACT_STRING >= 3
+    pub key: String,
 
     /// The coordinator key type. (Group, transaction, etc.)
     pub key_type: CoordinatorType,
@@ -64,21 +64,16 @@ where
         if v < 3 {
             self.key.write(writer)?;
         } else if v == 3 {
-            CompactStringRef(&self.key.0.as_str()).write(writer)?;
+            self.key.write_compact(writer)?;
         } else {
             // removed in version 4
         }
 
-        let key_type = Int8(self.key_type.as_i8());
+        let key_type = self.key_type.as_i8();
         key_type.write(writer)?;
 
         if v >= 3 {
-            match self.tagged_fields.as_ref() {
-                Some(tagged_fields) => {
-                    tagged_fields.write(writer)?;
-                }
-                None => TaggedFields::default().write(writer)?,
-            }
+            self.tagged_fields.write(writer)?;
         }
 
         Ok(())
@@ -99,7 +94,7 @@ impl RequestBody for FindCoordinatorRequest {
 pub struct FindCoordinatorResponse {
     /// The duration in milliseconds for which the request was throttled due to a
     /// quota violation, or zero if the request did not violate any quota.
-    pub throttle_time_ms: Int32,
+    pub throttle_time_ms: i32,
 
     /// The error code, or 0 if there was no error.
     ///
@@ -109,25 +104,27 @@ pub struct FindCoordinatorResponse {
     /// The error message, or null if there was no error.
     ///
     /// Added in version 1
-    /// Change to COMPACT_NULLABLE_STRING in version 3
+    /// NULLABLE_STRING >= 1
+    /// COMPACT_NULLABLE_STRING == 3
     /// Removed in version 4
-    pub error_message: NullableString,
+    pub error_message: Option<String>,
 
     /// The node id.
     ///
     /// Removed in version 4
-    pub node_id: Int32,
+    pub node_id: i32,
 
     /// The host name.
     ///
-    /// Changed to COMPACT_STRING in version 3.
-    /// Removed in version 4
-    pub host: String_,
+    /// STRING < 3
+    /// COMPACT_STRING == 3
+    /// Removed in version 4.
+    pub host: String,
 
     /// The port.
     ///
     /// Removed in version 4
-    pub port: Int32,
+    pub port: i32,
 
     /// The tagged fields.
     ///
@@ -144,28 +141,33 @@ where
         assert!(v > 0);
         assert!(v <= 4);
 
-        let throttle_time_ms = Int32::read(reader)?;
+        let throttle_time_ms = i32::read(reader)?;
         let error_code = if v < 4 {
-            Error::new(Int16::read(reader)?.0)
+            Error::new(i16::read(reader)?)
         } else {
             None
         };
+
         let error_message = if v < 3 {
-            NullableString::read(reader)?
+            ReadType::read(reader)?
+        } else if v == 3 {
+            ReadCompactType::read_compact(reader)?
         } else {
-            let c = CompactNullableString::read(reader)?;
-            NullableString(c.0)
+            // removed in version 4
+            None
         };
 
-        let node_id = Int32::read(reader)?;
+        let node_id = i32::read(reader)?;
         let host = if v < 3 {
-            String_::read(reader)?
+            String::read(reader)?
+        } else if v == 3 {
+            String::read_compact(reader)?
         } else {
-            let c = CompactString::read(reader)?;
-            String_(c.0)
+            // v >= 4
+            String::new()
         };
 
-        let port = Int32::read(reader)?;
+        let port = i32::read(reader)?;
 
         let tagged_fields = (v >= 3).then(|| TaggedFields::read(reader)).transpose()?;
 

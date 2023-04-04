@@ -7,8 +7,8 @@ use crate::protocol::{
     messages::{
         read_compact_versioned_array, write_compact_versioned_array, write_versioned_array,
     },
-    primitives::{CompactString, Int16, Int32, TaggedFields},
-    traits::{ReadType, WriteType},
+    primitives::TaggedFields,
+    traits::{ReadCompactType, ReadType, WriteType},
 };
 
 use super::{
@@ -16,6 +16,7 @@ use super::{
     WriteVersionedType,
 };
 
+use crate::protocol::traits::WriteCompactType;
 #[cfg(test)]
 use proptest::prelude::*;
 
@@ -25,12 +26,12 @@ pub struct ApiVersionsRequest {
     /// The name of the client.
     ///
     /// Added in version 3.
-    pub client_software_name: Option<CompactString>,
+    pub client_software_name: Option<String>,
 
     /// The version of the client.
     ///
     /// Added in version 3.
-    pub client_software_version: Option<CompactString>,
+    pub client_software_version: Option<String>,
 
     /// The tagged fields.
     ///
@@ -47,8 +48,8 @@ where
         assert!(v <= 3);
 
         Ok(Self {
-            client_software_name: (v >= 3).then(|| CompactString::read(reader)).transpose()?,
-            client_software_version: (v >= 3).then(|| CompactString::read(reader)).transpose()?,
+            client_software_name: (v >= 3).then(|| String::read_compact(reader)).transpose()?,
+            client_software_version: (v >= 3).then(|| String::read_compact(reader)).transpose()?,
             tagged_fields: (v >= 3).then(|| TaggedFields::read(reader)).transpose()?,
         })
     }
@@ -67,32 +68,25 @@ where
         assert!(v <= 3);
 
         if v >= 3 {
-            match self.client_software_name.as_ref() {
-                Some(client_software_name) => {
-                    client_software_name.write(writer)?;
+            match &self.client_software_name {
+                Some(v) => {
+                    v.write_compact(writer)?;
                 }
                 None => {
-                    CompactString::default().write(writer)?;
+                    String::new().write_compact(writer)?;
                 }
             }
 
-            match self.client_software_version.as_ref() {
-                Some(client_software_version) => {
-                    client_software_version.write(writer)?;
+            match &self.client_software_version {
+                Some(v) => {
+                    v.write_compact(writer)?;
                 }
                 None => {
-                    CompactString::default().write(writer)?;
+                    String::new().write_compact(writer)?;
                 }
             }
 
-            match self.tagged_fields.as_ref() {
-                Some(tagged_fields) => {
-                    tagged_fields.write(writer)?;
-                }
-                None => {
-                    TaggedFields::default().write(writer)?;
-                }
-            }
+            self.tagged_fields.write(writer)?;
         }
 
         Ok(())
@@ -199,7 +193,7 @@ pub struct ApiVersionsResponse {
     /// The duration in milliseconds for which the request was throttled due to a quota violation, or zero if the request did not violate any quota.
     ///
     /// Added in version 1
-    pub throttle_time_ms: Option<Int32>,
+    pub throttle_time_ms: Option<i32>,
 
     /// The tagged fields.
     ///
@@ -215,13 +209,13 @@ where
         let v = version.0;
         assert!(v <= 3);
 
-        let error_code = ApiError::new(Int16::read(reader)?.0);
+        let error_code = ApiError::new(i16::read(reader)?);
         let api_keys = if v >= 3 {
             read_compact_versioned_array(reader, version)?.unwrap_or_default()
         } else {
             read_versioned_array(reader, version)?.unwrap_or_default()
         };
-        let throttle_time_ms = (v >= 1).then(|| Int32::read(reader)).transpose()?;
+        let throttle_time_ms = (v >= 1).then(|| i32::read(reader)).transpose()?;
         let tagged_fields = (v >= 3).then(|| TaggedFields::read(reader)).transpose()?;
 
         Ok(Self {
@@ -257,18 +251,11 @@ where
 
         if v >= 1 {
             // defaults to "no throttle"
-            self.throttle_time_ms.unwrap_or(Int32(0)).write(writer)?;
+            self.throttle_time_ms.unwrap_or_default().write(writer)?;
         }
 
         if v >= 3 {
-            match self.tagged_fields.as_ref() {
-                Some(tagged_fields) => {
-                    tagged_fields.write(writer)?;
-                }
-                None => {
-                    TaggedFields::default().write(writer)?;
-                }
-            }
+            self.tagged_fields.write(writer)?;
         }
 
         Ok(())

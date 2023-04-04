@@ -10,7 +10,6 @@ use crate::protocol::{
     api_version::{ApiVersion, ApiVersionRange},
     error::Error as ApiError,
     messages::{read_versioned_array, write_versioned_array, IsolationLevel},
-    primitives::{Array, Int16, Int32, Int64, Int8, String_},
     traits::{ReadType, WriteType},
 };
 
@@ -19,10 +18,9 @@ use super::{
 };
 
 #[derive(Debug)]
-#[allow(missing_copy_implementations)]
 pub struct ListOffsetsRequestPartition {
     /// The partition index.
-    pub partition_index: Int32,
+    pub partition_index: i32,
 
     /// The current timestamp.
     ///
@@ -37,14 +35,14 @@ pub struct ListOffsetsRequestPartition {
     /// - `-2`: earlist offset
     ///
     /// [KIP-79]: https://cwiki.apache.org/confluence/pages/viewpage.action?pageId=65868090
-    pub timestamp: Int64,
+    pub timestamp: i64,
 
     /// The maximum number of offsets to report.
     ///
     /// Defaults to 1.
     ///
     /// Removed in version 1.
-    pub max_num_offsets: Option<Int32>,
+    pub max_num_offsets: Option<i32>,
 }
 
 impl<W> WriteVersionedType<W> for ListOffsetsRequestPartition
@@ -64,7 +62,7 @@ where
 
         if v < 1 {
             // Only fetch 1 offset by default.
-            self.max_num_offsets.unwrap_or(Int32(1)).write(writer)?;
+            self.max_num_offsets.unwrap_or(1i32).write(writer)?;
         }
 
         Ok(())
@@ -74,7 +72,7 @@ where
 #[derive(Debug)]
 pub struct ListOffsetsRequestTopic {
     /// The topic name.
-    pub name: String_,
+    pub name: String,
 
     /// Each partition in the request.
     ///
@@ -104,7 +102,7 @@ where
 #[derive(Debug)]
 pub struct ListOffsetsRequest {
     /// The broker ID of the requestor, or -1 if this request is being made by a normal consumer.
-    pub replica_id: Int32,
+    pub replica_id: i32,
 
     /// This setting controls the visibility of transactional records.
     ///
@@ -143,7 +141,7 @@ where
 
         if v >= 2 {
             // The default is `READ_UNCOMMITTED`.
-            let level: Int8 = self.isolation_level.unwrap_or_default().into();
+            let level: i8 = self.isolation_level.unwrap_or_default().into();
             level.write(writer)?;
         }
 
@@ -159,7 +157,7 @@ impl RequestBody for ListOffsetsRequest {
     const API_KEY: ApiKey = ApiKey::ListOffsets;
 
     /// At the time of writing this is the same subset supported by rdkafka
-    const API_VERSION_RANGE: ApiVersionRange = ApiVersionRange::new(0, 3);
+    const API_VERSION_RANGE: ApiVersionRange = ApiVersionRange::new(1, 3);
 
     const FIRST_TAGGED_FIELD_IN_REQUEST_VERSION: ApiVersion = ApiVersion::new(6);
 }
@@ -167,25 +165,20 @@ impl RequestBody for ListOffsetsRequest {
 #[derive(Debug)]
 pub struct ListOffsetsResponsePartition {
     /// The partition index.
-    pub partition_index: Int32,
+    pub partition_index: i32,
 
     /// The partition error code, or 0 if there was no error.
     pub error_code: Option<ApiError>,
 
-    /// The result offsets.
-    ///
-    /// Removed in version 1.
-    pub old_style_offsets: Option<Array<Int64>>,
-
     /// The timestamp associated with the returned offset.
     ///
     /// Added in version 1.
-    pub timestamp: Option<Int64>,
+    pub timestamp: i64,
 
     /// The returned offset.
     ///
     /// Added in version 1.
-    pub offset: Option<Int64>,
+    pub offset: i64,
 }
 
 impl<R> ReadVersionedType<R> for ListOffsetsResponsePartition
@@ -194,14 +187,13 @@ where
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
         let v = version.0;
-        assert!(v <= 3);
+        assert!(v <= 3 && v > 0);
 
         Ok(Self {
-            partition_index: Int32::read(reader)?,
-            error_code: ApiError::new(Int16::read(reader)?.0),
-            old_style_offsets: (v < 1).then(|| Array::read(reader)).transpose()?,
-            timestamp: (v >= 1).then(|| Int64::read(reader)).transpose()?,
-            offset: (v >= 1).then(|| Int64::read(reader)).transpose()?,
+            partition_index: i32::read(reader)?,
+            error_code: ApiError::new(i16::read(reader)?),
+            timestamp: i64::read(reader)?,
+            offset: i64::read(reader)?,
         })
     }
 }
@@ -209,7 +201,7 @@ where
 #[derive(Debug)]
 pub struct ListOffsetsResponseTopic {
     /// The topic name.
-    pub name: String_,
+    pub name: String,
 
     /// Each partition in the response.
     pub partitions: Vec<ListOffsetsResponsePartition>,
@@ -224,7 +216,7 @@ where
         assert!(v <= 3);
 
         Ok(Self {
-            name: String_::read(reader)?,
+            name: String::read(reader)?,
             partitions: read_versioned_array(reader, version)?.unwrap_or_default(),
         })
     }
@@ -235,7 +227,7 @@ pub struct ListOffsetsResponse {
     /// The duration in milliseconds for which the request was throttled due to a quota violation, or zero if the request did not violate any quota.
     ///
     /// Added in version 2.
-    pub throttle_time_ms: Option<Int32>,
+    pub throttle_time_ms: Option<i32>,
 
     /// Each topic in the response.
     pub topics: Vec<ListOffsetsResponseTopic>,
@@ -250,7 +242,7 @@ where
         assert!(v <= 3);
 
         Ok(Self {
-            throttle_time_ms: (v >= 2).then(|| Int32::read(reader)).transpose()?,
+            throttle_time_ms: (v >= 2).then(|| i32::read(reader)).transpose()?,
             topics: read_versioned_array(reader, version)?.unwrap_or_default(),
         })
     }

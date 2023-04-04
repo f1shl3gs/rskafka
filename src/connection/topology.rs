@@ -28,9 +28,9 @@ impl Display for Broker {
 impl<'a> From<&'a MetadataResponseBroker> for Broker {
     fn from(b: &'a MetadataResponseBroker) -> Self {
         Self {
-            id: b.node_id.0,
-            host: b.host.0.clone(),
-            port: b.port.0,
+            id: b.node_id,
+            host: b.host.clone(),
+            port: b.port,
         }
     }
 }
@@ -54,13 +54,13 @@ impl BrokerTopology {
     pub fn update(&self, brokers: &[MetadataResponseBroker]) {
         let mut topology = self.topology.write();
         for broker in brokers {
-            match topology.entry(broker.node_id.0) {
+            match topology.entry(broker.node_id) {
                 Entry::Occupied(mut o) => {
                     let current = o.get_mut();
-                    if current.host != broker.host.0 || current.port != broker.port.0 {
+                    if current.host != broker.host || current.port != broker.port {
                         let new = Broker::from(broker);
                         info!(
-                            broker=broker.node_id.0,
+                            broker=broker.node_id,
                             current=%current,
                             new=%new,
                             "Broker update",
@@ -71,7 +71,7 @@ impl BrokerTopology {
                 Entry::Vacant(v) => {
                     let new = Broker::from(broker);
                     info!(
-                        broker=broker.node_id.0,
+                        broker=broker.node_id,
                         new=%new,
                         "New broker",
                     );

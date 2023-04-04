@@ -9,10 +9,11 @@ use crate::protocol::messages::{
     read_compact_versioned_array, read_versioned_array, write_compact_versioned_array,
     write_versioned_array,
 };
+use crate::protocol::primitives::TaggedFields;
+use crate::protocol::traits::{ReadCompactType, WriteCompactType};
 use crate::protocol::{
     api_key::ApiKey,
     api_version::ApiVersion,
-    primitives::*,
     traits::{ReadType, WriteType},
 };
 
@@ -22,12 +23,12 @@ pub struct CreateTopicsRequest {
     pub topics: Vec<CreateTopicRequest>,
 
     /// How long to wait in milliseconds before timing out the request.
-    pub timeout_ms: Int32,
+    pub timeout_ms: i32,
 
     /// If true, check that the topics can be created as specified, but don't create anything.
     ///
     /// Added in version 1
-    pub validate_only: Option<Boolean>,
+    pub validate_only: bool,
 
     /// The tagged fields.
     ///
@@ -58,36 +59,20 @@ where
         let v = version.0;
         assert!(v <= 5);
 
-        if self.validate_only.is_some() && v < 1 {
-            return Err(WriteVersionedError::FieldNotAvailable {
-                version,
-                field: "validate_only".to_string(),
-            });
-        }
-
         if v >= 5 {
             write_compact_versioned_array(writer, version, Some(self.topics.as_slice()))?;
         } else {
             write_versioned_array(writer, version, Some(self.topics.as_slice()))?;
         }
+
         self.timeout_ms.write(writer)?;
 
         if v >= 1 {
-            match self.validate_only {
-                Some(b) => b.write(writer)?,
-                None => Boolean(false).write(writer)?,
-            }
+            self.validate_only.write(writer)?;
         }
 
         if v >= 5 {
-            match self.tagged_fields.as_ref() {
-                Some(tagged_fields) => {
-                    tagged_fields.write(writer)?;
-                }
-                None => {
-                    TaggedFields::default().write(writer)?;
-                }
-            }
+            self.tagged_fields.write(writer)?;
         }
 
         Ok(())
@@ -97,19 +82,19 @@ where
 #[derive(Debug)]
 pub struct CreateTopicRequest {
     /// The topic name
-    pub name: String_,
+    pub name: String,
 
     /// The number of partitions to create in the topic, or -1 if we are either
     /// specifying a manual partition assignment or using the default partitions.
     ///
     /// Note: default partition count requires broker version >= 2.4.0 (KIP-464)
-    pub num_partitions: Int32,
+    pub num_partitions: i32,
 
     /// The number of replicas to create for each partition in the topic, or -1 if we are either
     /// specifying a manual partition assignment or using the default replication factor.
     ///
     /// Note: default replication factor requires broker version >= 2.4.0 (KIP-464)
-    pub replication_factor: Int16,
+    pub replication_factor: i16,
 
     /// The manual partition assignment, or the empty array if we are using automatic assignment.
     pub assignments: Vec<CreateTopicAssignment>,
@@ -136,7 +121,7 @@ where
         assert!(v <= 5);
 
         if v >= 5 {
-            CompactStringRef(&self.name.0).write(writer)?
+            self.name.write_compact(writer)?;
         } else {
             self.name.write(writer)?;
         }
@@ -174,10 +159,10 @@ where
 #[derive(Debug)]
 pub struct CreateTopicAssignment {
     /// The partition index
-    pub partition_index: Int32,
+    pub partition_index: i32,
 
     /// The brokers to place the partition on
-    pub broker_ids: Array<Int32>,
+    pub broker_ids: Vec<i32>,
 
     /// The tagged fields.
     ///
@@ -200,20 +185,13 @@ where
         self.partition_index.write(writer)?;
 
         if v >= 5 {
-            CompactArrayRef(self.broker_ids.0.as_deref()).write(writer)?;
+            self.broker_ids.write_compact(writer)?;
         } else {
             self.broker_ids.write(writer)?;
         }
 
         if v >= 5 {
-            match self.tagged_fields.as_ref() {
-                Some(tagged_fields) => {
-                    tagged_fields.write(writer)?;
-                }
-                None => {
-                    TaggedFields::default().write(writer)?;
-                }
-            }
+            self.tagged_fields.write(writer)?;
         }
 
         Ok(())
@@ -223,10 +201,10 @@ where
 #[derive(Debug)]
 pub struct CreateTopicConfig {
     /// The configuration name.
-    pub name: String_,
+    pub name: String,
 
     /// The configuration value.
-    pub value: NullableString,
+    pub value: Option<String>,
 
     /// The tagged fields.
     ///
@@ -247,26 +225,19 @@ where
         assert!(v <= 5);
 
         if v >= 5 {
-            CompactStringRef(&self.name.0).write(writer)?;
+            self.name.write_compact(writer)?;
         } else {
             self.name.write(writer)?;
         }
 
         if v >= 5 {
-            CompactNullableStringRef(self.value.0.as_deref()).write(writer)?;
+            self.value.write_compact(writer)?;
         } else {
             self.value.write(writer)?;
         }
 
         if v >= 5 {
-            match self.tagged_fields.as_ref() {
-                Some(tagged_fields) => {
-                    tagged_fields.write(writer)?;
-                }
-                None => {
-                    TaggedFields::default().write(writer)?;
-                }
-            }
+            self.tagged_fields.write(writer)?;
         }
 
         Ok(())
@@ -279,7 +250,7 @@ pub struct CreateTopicsResponse {
     /// violation, or zero if the request did not violate any quota.
     ///
     /// Added in version 2
-    pub throttle_time_ms: Option<Int32>,
+    pub throttle_time_ms: i32,
 
     /// Results for each topic we tried to create.
     pub topics: Vec<CreateTopicResponse>,
@@ -298,7 +269,10 @@ where
         let v = version.0;
         assert!(v <= 5);
 
-        let throttle_time_ms = (v >= 2).then(|| Int32::read(reader)).transpose()?;
+        let throttle_time_ms = (v >= 2)
+            .then(|| i32::read(reader))
+            .transpose()?
+            .unwrap_or_default();
         let topics = if v >= 5 {
             read_compact_versioned_array(reader, version)?.unwrap_or_default()
         } else {
@@ -317,21 +291,29 @@ where
 #[derive(Debug)]
 pub struct CreateTopicResponseConfig {
     /// The configuration name.
-    pub name: CompactString,
+    ///
+    /// STRING < 5
+    /// COMPACT_STRING >= 5
+    pub name: String,
 
     /// The configuration value.
-    pub value: CompactNullableString,
+    ///
+    /// STRING < 5
+    /// COMPACT_STRING >= 5
+    pub value: Option<String>,
 
     /// True if the configuration is read-only.
-    pub read_only: Boolean,
+    pub read_only: bool,
 
     /// The configuration source.
-    pub config_source: Int8,
+    pub config_source: i8,
 
     /// True if this configuration is sensitive.
-    pub is_sensitive: Boolean,
+    pub is_sensitive: bool,
 
     /// The tagged fields.
+    ///
+    /// Added in version 5
     pub tagged_fields: TaggedFields,
 }
 
@@ -344,11 +326,11 @@ where
         assert!(v == 5);
 
         Ok(Self {
-            name: CompactString::read(reader)?,
-            value: CompactNullableString::read(reader)?,
-            read_only: Boolean::read(reader)?,
-            config_source: Int8::read(reader)?,
-            is_sensitive: Boolean::read(reader)?,
+            name: String::read_compact(reader)?,
+            value: ReadCompactType::read_compact(reader)?,
+            read_only: bool::read(reader)?,
+            config_source: i8::read(reader)?,
+            is_sensitive: bool::read(reader)?,
             tagged_fields: TaggedFields::read(reader)?,
         })
     }
@@ -357,7 +339,7 @@ where
 #[derive(Debug)]
 pub struct CreateTopicResponse {
     /// The topic name.
-    pub name: String_,
+    pub name: String,
 
     /// The error code, or 0 if there was no error.
     pub error: Option<Error>,
@@ -365,17 +347,17 @@ pub struct CreateTopicResponse {
     /// The error message
     ///
     /// Added in version 1
-    pub error_message: Option<NullableString>,
+    pub error_message: Option<String>,
 
     /// Number of partitions of the topic.
     ///
     /// Added in version 5
-    pub num_partitions: Option<Int32>,
+    pub num_partitions: Option<i32>,
 
     /// Replication factor of the topic.
     ///
     /// Added in version 5.
-    pub replication_factor: Option<Int16>,
+    pub replication_factor: Option<i16>,
 
     /// Configuration of the topic.
     ///
@@ -397,22 +379,22 @@ where
         assert!(v <= 5);
 
         let name = if v >= 5 {
-            String_(CompactString::read(reader)?.0)
+            String::read_compact(reader)?
         } else {
-            String_::read(reader)?
+            String::read(reader)?
         };
-        let error = Error::new(Int16::read(reader)?.0);
+        let error = Error::new(i16::read(reader)?);
         let error_message = (v >= 1)
             .then(|| {
                 if v >= 5 {
-                    Ok(NullableString(CompactNullableString::read(reader)?.0))
+                    ReadCompactType::read_compact(reader)
                 } else {
-                    NullableString::read(reader)
+                    ReadType::read(reader)
                 }
             })
             .transpose()?;
-        let num_partitions = (v >= 5).then(|| Int32::read(reader)).transpose()?;
-        let replication_factor = (v >= 5).then(|| Int16::read(reader)).transpose()?;
+        let num_partitions = (v >= 5).then(|| i32::read(reader)).transpose()?;
+        let replication_factor = (v >= 5).then(|| i16::read(reader)).transpose()?;
         let configs = (v >= 5)
             .then(|| read_compact_versioned_array(reader, version))
             .transpose()?

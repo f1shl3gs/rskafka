@@ -14,6 +14,4 @@ pub struct ConsumerGroup {
     member_id: String,
 }
 
-impl ConsumerGroup {
-
-}
+impl ConsumerGroup {}

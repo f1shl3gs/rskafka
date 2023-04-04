@@ -12,7 +12,6 @@ pub use crate::connection::topology::{Broker, BrokerTopology};
 use crate::connection::transport::Transport;
 use crate::messenger::{Messenger, RequestError};
 use crate::protocol::messages::{MetadataRequest, MetadataRequestTopic, MetadataResponse};
-use crate::protocol::primitives::String_;
 use crate::throttle::maybe_throttle;
 use crate::{
     backoff::{Backoff, BackoffConfig, BackoffError},
@@ -255,7 +254,7 @@ impl BrokerConnector {
         let request = MetadataRequest {
             topics: topics.map(|t| {
                 t.into_iter()
-                    .map(|x| MetadataRequestTopic { name: String_(x) })
+                    .map(|x| MetadataRequestTopic { name: x })
                     .collect()
             }),
             allow_auto_topic_creation: None,

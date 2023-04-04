@@ -9,10 +9,7 @@ use async_trait::async_trait;
 use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-use super::{
-    primitives::Int32,
-    traits::{ReadType, WriteType},
-};
+use super::traits::{ReadType, WriteType};
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -41,11 +38,10 @@ where
     async fn read_message(&mut self, max_message_size: usize) -> Result<Vec<u8>, ReadError> {
         let mut len_buf = vec![0u8; 4];
         self.read_exact(&mut len_buf).await?;
-        let len = Int32::read(&mut Cursor::new(len_buf))
+        let len = i32::read(&mut Cursor::new(len_buf))
             .expect("Reading Int32 from in-mem buffer should always work");
 
-        let len =
-            usize::try_from(len.0).map_err(|_| ReadError::NegativeMessageSize { size: len.0 })?;
+        let len = usize::try_from(len).map_err(|_| ReadError::NegativeMessageSize { size: len })?;
 
         // check max message size to not blow up memory
         if len > max_message_size {
@@ -97,8 +93,7 @@ where
 {
     async fn write_message(&mut self, msg: &[u8]) -> Result<(), WriteError> {
         let mut len_buf = Vec::<u8>::with_capacity(4);
-        let len =
-            Int32(i32::try_from(msg.len()).map_err(|_| WriteError::TooLarge { size: msg.len() })?);
+        let len = i32::try_from(msg.len()).map_err(|_| WriteError::TooLarge { size: msg.len() })?;
         len.write(&mut len_buf)
             .expect("Int32 should always be writable to in-mem buffer");
 
@@ -122,7 +117,7 @@ mod tests {
     #[tokio::test]
     async fn test_read_negative_size() {
         let mut data = vec![];
-        Int32(-1).write(&mut data).unwrap();
+        (-1i32).write(&mut data).unwrap();
 
         let err = Cursor::new(data).read_message(100).await.unwrap_err();
         assert_matches!(err, ReadError::NegativeMessageSize { .. });

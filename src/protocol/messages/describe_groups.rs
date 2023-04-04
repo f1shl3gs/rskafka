@@ -7,17 +7,16 @@ use crate::protocol::messages::{
     read_versioned_array, ReadVersionedError, ReadVersionedType, RequestBody, WriteVersionedError,
     WriteVersionedType,
 };
-use crate::protocol::primitives::{Array, Boolean, Bytes, Int16, Int32, NullableString, String_};
 use crate::protocol::traits::{ReadType, WriteType};
 
 pub struct DescribeGroupsRequest {
     /// The names of the groups to describe.
-    pub groups: Array<String_>,
+    pub groups: Vec<String>,
 
     /// Whether to include authorized operations.
     ///
     /// Added in version 3.
-    pub include_authorized_operations: Option<Boolean>,
+    pub include_authorized_operations: bool,
 }
 
 impl RequestBody for DescribeGroupsRequest {
@@ -44,11 +43,8 @@ where
 
         self.groups.write(writer)?;
 
-        if v >= 3 && self.include_authorized_operations.is_some() {
-            match self.include_authorized_operations {
-                Some(b) => b.write(writer)?,
-                None => Boolean(false).write(writer)?,
-            }
+        if v >= 3 {
+            self.include_authorized_operations.write(writer)?;
         }
 
         Ok(())
@@ -58,24 +54,24 @@ where
 #[derive(Debug)]
 pub struct Member {
     /// The member ID assigned by the group coordinator.
-    pub member_id: String_,
+    pub member_id: String,
 
     /// The unique identifier of the consumer instance provided by end user.
     ///
     /// Added in version 4
-    pub group_instance_id: Option<NullableString>,
+    pub group_instance_id: Option<String>,
 
     /// The client ID used in the member's latest join group request.
-    pub client_id: String_,
+    pub client_id: String,
 
     /// The client host.
-    pub client_host: String_,
+    pub client_host: String,
 
     /// The metadata corresponding to the current group protocol in use.
-    pub member_metadata: Bytes,
+    pub member_metadata: Vec<u8>,
 
     /// The current assignment provided by the group leader.
-    pub member_assignment: Bytes,
+    pub member_assignment: Vec<u8>,
 }
 
 impl<R> ReadVersionedType<R> for Member
@@ -86,12 +82,12 @@ where
         let v = version.0;
         assert!(v <= 4);
 
-        let member_id = String_::read(reader)?;
-        let group_instance_id = (v >= 4).then(|| NullableString::read(reader)).transpose()?;
-        let client_id = String_::read(reader)?;
-        let client_host = String_::read(reader)?;
-        let member_metadata = Bytes::read(reader)?;
-        let member_assignment = Bytes::read(reader)?;
+        let member_id = String::read(reader)?;
+        let group_instance_id = (v >= 4).then(|| ReadType::read(reader)).transpose()?;
+        let client_id = String::read(reader)?;
+        let client_host = String::read(reader)?;
+        let member_metadata = ReadType::read(reader)?;
+        let member_assignment = ReadType::read(reader)?;
 
         Ok(Self {
             member_id,
@@ -110,16 +106,16 @@ pub struct Group {
     pub error_code: Option<Error>,
 
     /// The group ID string.
-    pub group_id: String_,
+    pub group_id: String,
 
     /// The group state string, or the empty string.
-    pub group_state: String_,
+    pub group_state: String,
 
     /// The group protocol type, or the empty string.
-    pub protocol_type: String_,
+    pub protocol_type: String,
 
     /// The group protocol data, or the empty string.
-    pub protocol_data: String_,
+    pub protocol_data: String,
 
     /// The group members.
     pub members: Vec<Member>,
@@ -127,7 +123,7 @@ pub struct Group {
     /// 32-bit bitfield to represent authorized operations for this group.
     ///
     /// Added in version 3.
-    pub authorized_operations: Option<Int32>,
+    pub authorized_operations: Option<i32>,
 }
 
 impl<R> ReadVersionedType<R> for Group
@@ -138,13 +134,13 @@ where
         let v = version.0;
         assert!(v <= 4);
 
-        let error_code = Error::new(Int16::read(reader)?.0);
-        let group_id = String_::read(reader)?;
-        let group_state = String_::read(reader)?;
-        let protocol_type = String_::read(reader)?;
-        let protocol_data = String_::read(reader)?;
+        let error_code = Error::new(i16::read(reader)?);
+        let group_id = String::read(reader)?;
+        let group_state = String::read(reader)?;
+        let protocol_type = String::read(reader)?;
+        let protocol_data = String::read(reader)?;
         let members = read_versioned_array(reader, version)?.unwrap_or_default();
-        let authorized_operations = (v >= 3).then(|| Int32::read(reader)).transpose()?;
+        let authorized_operations = (v >= 3).then(|| i32::read(reader)).transpose()?;
 
         Ok(Self {
             error_code,

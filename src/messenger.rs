@@ -23,7 +23,7 @@ use tokio::{
 };
 use tracing::{debug, info, warn};
 
-use crate::protocol::{api_version::ApiVersionRange, primitives::CompactString};
+use crate::protocol::api_version::ApiVersionRange;
 use crate::protocol::{messages::ApiVersionsRequest, traits::ReadType};
 use crate::{
     backoff::ErrorOrThrottle,
@@ -35,7 +35,7 @@ use crate::{
             ReadVersionedError, ReadVersionedType, RequestBody, RequestHeader, ResponseHeader,
             WriteVersionedError, WriteVersionedType,
         },
-        primitives::{Int32, NullableString, TaggedFields},
+        primitives::TaggedFields,
     },
     throttle::maybe_throttle,
 };
@@ -209,11 +209,11 @@ where
 
                         let active_request = match state_captured.lock().deref_mut() {
                             MessengerState::RequestMap(map) => {
-                                if let Some(active_request) = map.remove(&header.correlation_id.0) {
+                                if let Some(active_request) = map.remove(&header.correlation_id) {
                                     active_request
                                 } else {
                                     warn!(
-                                        correlation_id = header.correlation_id.0,
+                                        correlation_id = header.correlation_id,
                                         "Got response for unknown request",
                                     );
                                     continue;
@@ -319,10 +319,10 @@ where
         let header = RequestHeader {
             request_api_key: R::API_KEY,
             request_api_version: body_api_version,
-            correlation_id: Int32(correlation_id),
+            correlation_id,
             // Technically we don't need to send a client_id, but newer redpanda version fail to parse the message
             // without it. See https://github.com/influxdata/rskafka/issues/169 .
-            client_id: Some(NullableString(Some(String::from(self.client_id.as_ref())))),
+            client_id: Some(String::from(self.client_id.as_ref())),
             tagged_fields: Some(TaggedFields::default()),
         };
         let header_version = if use_tagged_fields_in_request {
@@ -418,10 +418,8 @@ where
             )]);
 
             let body = ApiVersionsRequest {
-                client_software_name: Some(CompactString(String::from(env!("CARGO_PKG_NAME")))),
-                client_software_version: Some(CompactString(String::from(env!(
-                    "CARGO_PKG_VERSION"
-                )))),
+                client_software_name: Some(String::from(env!("CARGO_PKG_NAME"))),
+                client_software_version: Some(String::from(env!("CARGO_PKG_VERSION"))),
                 tagged_fields: Some(TaggedFields::default()),
             };
 
@@ -697,7 +695,7 @@ mod tests {
         // construct response
         let mut msg = vec![];
         ResponseHeader {
-            correlation_id: Int32(0),
+            correlation_id: 0,
             tagged_fields: Default::default(), // NOT serialized for ApiVersion!
         }
         .write_versioned(&mut msg, ApiVersion::new(0))
@@ -731,7 +729,7 @@ mod tests {
         // construct error response
         let mut msg = vec![];
         ResponseHeader {
-            correlation_id: Int32(0),
+            correlation_id: 0,
             tagged_fields: Default::default(), // NOT serialized for ApiVersion!
         }
         .write_versioned(&mut msg, ApiVersion(0))
@@ -754,7 +752,7 @@ mod tests {
         // construct good response
         let mut msg = vec![];
         ResponseHeader {
-            correlation_id: Int32(1),
+            correlation_id: 1,
             tagged_fields: Default::default(),
         }
         .write_versioned(&mut msg, ApiVersion(0))
@@ -791,7 +789,7 @@ mod tests {
         // construct error response
         let mut msg = vec![];
         ResponseHeader {
-            correlation_id: Int32(0),
+            correlation_id: 0,
             tagged_fields: Default::default(), // NOT serialized for ApiVersion!
         }
         .write_versioned(&mut msg, ApiVersion(0))
@@ -802,7 +800,7 @@ mod tests {
         // construct good response
         let mut msg = vec![];
         ResponseHeader {
-            correlation_id: Int32(1),
+            correlation_id: 1,
             tagged_fields: Default::default(),
         }
         .write_versioned(&mut msg, ApiVersion(0))
@@ -839,7 +837,7 @@ mod tests {
         // construct response
         let mut msg = vec![];
         ResponseHeader {
-            correlation_id: Int32(0),
+            correlation_id: 0,
             tagged_fields: Default::default(), // NOT serialized for ApiVersion!
         }
         .write_versioned(&mut msg, ApiVersion(0))
@@ -872,7 +870,7 @@ mod tests {
         // construct response
         let mut msg = vec![];
         ResponseHeader {
-            correlation_id: Int32(0),
+            correlation_id: 0,
             tagged_fields: Default::default(), // NOT serialized for ApiVersion!
         }
         .write_versioned(&mut msg, ApiVersion(0))
@@ -896,7 +894,7 @@ mod tests {
         // construct good response
         let mut msg = vec![];
         ResponseHeader {
-            correlation_id: Int32(1),
+            correlation_id: 1,
             tagged_fields: Default::default(),
         }
         .write_versioned(&mut msg, ApiVersion(0))
@@ -938,7 +936,7 @@ mod tests {
         {
             let mut msg = vec![];
             ResponseHeader {
-                correlation_id: Int32(i as i32),
+                correlation_id: i as i32,
                 tagged_fields: Default::default(),
             }
             .write_versioned(&mut msg, ApiVersion(0))
@@ -1034,7 +1032,7 @@ mod tests {
         // construct good response
         let mut msg = vec![];
         ResponseHeader {
-            correlation_id: Int32(0),
+            correlation_id: 0,
             tagged_fields: Default::default(), // NOT serialized for ApiVersion!
         }
         .write_versioned(&mut msg, ApiVersion(0))
@@ -1042,7 +1040,7 @@ mod tests {
         let resp = ApiVersionsResponse {
             error_code: Some(ApiError::CorruptMessage),
             api_keys: vec![],
-            throttle_time_ms: Some(Int32(1)),
+            throttle_time_ms: Some(1),
             tagged_fields: Some(TaggedFields::default()),
         };
         resp.write_versioned(&mut msg, ApiVersionsRequest::API_VERSION_RANGE.max())
@@ -1051,8 +1049,8 @@ mod tests {
 
         let actual = messenger
             .request(ApiVersionsRequest {
-                client_software_name: Some(CompactString(String::new())),
-                client_software_version: Some(CompactString(String::new())),
+                client_software_name: Some(String::new()),
+                client_software_version: Some(String::new()),
                 tagged_fields: Some(TaggedFields::default()),
             })
             .await
@@ -1124,8 +1122,8 @@ mod tests {
                     RequestHeader {
                         request_api_key: ApiKey::ApiVersions,
                         request_api_version: ApiVersion(0),
-                        correlation_id: Int32(correlation_id),
-                        client_id: Some(NullableString(Some(String::from(env!("CARGO_PKG_NAME"))))),
+                        correlation_id,
+                        client_id: Some(String::from(env!("CARGO_PKG_NAME"))),
                         tagged_fields: None,
                     }
                 );
@@ -1142,7 +1140,7 @@ mod tests {
 
                 let mut msg = vec![];
                 ResponseHeader {
-                    correlation_id: Int32(correlation_id),
+                    correlation_id,
                     tagged_fields: Default::default(), // NOT serialized for ApiVersion!
                 }
                 .write_versioned(&mut msg, ApiVersion(0))
@@ -1150,7 +1148,7 @@ mod tests {
                 let resp = ApiVersionsResponse {
                     error_code: Some(ApiError::CorruptMessage),
                     api_keys: vec![],
-                    throttle_time_ms: Some(Int32(1)),
+                    throttle_time_ms: Some(1),
                     tagged_fields: Some(TaggedFields::default()),
                 };
                 resp.write_versioned(&mut msg, ApiVersionsRequest::API_VERSION_RANGE.min())
@@ -1168,8 +1166,8 @@ mod tests {
         let task_to_cancel = (async {
             messenger
                 .request(ApiVersionsRequest {
-                    client_software_name: Some(CompactString(String::from("foo"))),
-                    client_software_version: Some(CompactString(String::from("bar"))),
+                    client_software_name: Some(String::from("foo")),
+                    client_software_version: Some(String::from("bar")),
                     tagged_fields: Some(TaggedFields::default()),
                 })
                 .await
@@ -1196,8 +1194,8 @@ mod tests {
         tokio::time::timeout(Duration::from_millis(100), async {
             messenger
                 .request(ApiVersionsRequest {
-                    client_software_name: Some(CompactString(String::from("foo"))),
-                    client_software_version: Some(CompactString(String::from("bar"))),
+                    client_software_name: Some(String::from("foo")),
+                    client_software_version: Some(String::from("bar")),
                     tagged_fields: Some(TaggedFields::default()),
                 })
                 .await
@@ -1245,7 +1243,7 @@ mod tests {
                         }
                         Message::NegativeMessageSize => {
                             let mut buf = vec![];
-                            Int32(-1).write(&mut buf).unwrap();
+                            (-1i32).write(&mut buf).unwrap();
                             tx.write_all(&buf).await.unwrap()
                         }
                         Message::HangUp => {

@@ -24,7 +24,6 @@ use crate::{
             find_coordinator, join_group, list_groups, CreateTopicRequest, CreateTopicsRequest,
             DeleteTopicsRequest, DescribeGroupsRequest, Group,
         },
-        primitives::{Array, Int16, Int32, String_},
     },
     throttle::maybe_throttle,
     validation::ExactlyOne,
@@ -69,15 +68,15 @@ impl ControllerClient {
     ) -> Result<()> {
         let request = &CreateTopicsRequest {
             topics: vec![CreateTopicRequest {
-                name: String_(name.into()),
-                num_partitions: Int32(num_partitions),
-                replication_factor: Int16(replication_factor),
+                name: name.into(),
+                num_partitions,
+                replication_factor,
                 assignments: vec![],
                 configs: vec![],
                 tagged_fields: None,
             }],
-            timeout_ms: Int32(timeout_ms),
-            validate_only: None,
+            timeout_ms,
+            validate_only: false,
             tagged_fields: None,
         };
 
@@ -91,7 +90,7 @@ impl ControllerClient {
                 .await
                 .map_err(|e| ErrorOrThrottle::Error((e.into(), Some(gen))))?;
 
-            maybe_throttle(response.throttle_time_ms)?;
+            maybe_throttle(Some(response.throttle_time_ms))?;
 
             let topic = response
                 .topics
@@ -103,8 +102,8 @@ impl ControllerClient {
                 Some(protocol_error) => Err(ErrorOrThrottle::Error((
                     Error::ServerError {
                         protocol_error,
-                        error_message: topic.error_message.and_then(|s| s.0),
-                        request: RequestContext::Topic(topic.name.0),
+                        error_message: topic.error_message,
+                        request: RequestContext::Topic(topic.name),
                         response: None,
                         is_virtual: false,
                     },
@@ -127,8 +126,8 @@ impl ControllerClient {
         timeout_ms: i32,
     ) -> Result<()> {
         let request = &DeleteTopicsRequest {
-            topic_names: Array(Some(vec![String_(name.into())])),
-            timeout_ms: Int32(timeout_ms),
+            topic_names: vec![name.into()],
+            timeout_ms,
             tagged_fields: None,
         };
 
@@ -154,8 +153,8 @@ impl ControllerClient {
                 Some(protocol_error) => Err(ErrorOrThrottle::Error((
                     Error::ServerError {
                         protocol_error,
-                        error_message: topic.error_message.and_then(|s| s.0),
-                        request: RequestContext::Topic(topic.name.0),
+                        error_message: topic.error_message,
+                        request: RequestContext::Topic(topic.name),
                         response: None,
                         is_virtual: false,
                     },
@@ -173,10 +172,8 @@ impl ControllerClient {
 
     pub async fn describe_groups(&self, groups: &[String]) -> Result<Vec<Group>> {
         let request = &DescribeGroupsRequest {
-            groups: Array(Some(
-                groups.iter().map(|s| String_(s.to_string())).collect(),
-            )),
-            include_authorized_operations: None,
+            groups: groups.iter().map(|s| s.to_string()).collect(),
+            include_authorized_operations: false,
         };
 
         maybe_retry(
@@ -201,7 +198,7 @@ impl ControllerClient {
 
     pub async fn list_groups(&self) -> Result<Vec<list_groups::Group>> {
         let request = &list_groups::ListGroupsRequest {
-            states_filter: Array(None),
+            states_filter: vec![],
             tagged_fields: None,
         };
 
@@ -210,21 +207,21 @@ impl ControllerClient {
                 .get()
                 .await
                 .map_err(|e| ErrorOrThrottle::Error((e, None)))?;
-            let response = broker
+            let resp = broker
                 .request(request)
                 .await
                 .map_err(|e| ErrorOrThrottle::Error((e.into(), Some(gen))))?;
 
-            maybe_throttle(response.throttle_time_ms)?;
+            maybe_throttle(Some(resp.throttle_time_ms))?;
 
-            Ok(response.groups)
+            Ok(resp.groups)
         })
         .await
     }
 
     pub async fn heartbeat(
         &self,
-        req: &heartbeat::HeartbeatRequest
+        req: &heartbeat::HeartbeatRequest,
     ) -> Result<heartbeat::HeartbeatResponse> {
         maybe_retry(&self.backoff_config, self, "heartbeat", || async {
             let coordinator_id = self.get_coordinator(&req.group_id).await?;
@@ -244,7 +241,7 @@ impl ControllerClient {
                 .await
                 .map_err(|err| ErrorOrThrottle::Error((err.into(), None)))?;
 
-            maybe_throttle(Some(Int32(resp.throttle_time_ms)))?;
+            maybe_throttle(Some(resp.throttle_time_ms))?;
 
             match resp.error_code {
                 None => Ok(resp),
@@ -309,7 +306,7 @@ impl ControllerClient {
                 .await
                 .map_err(|err| ErrorOrThrottle::Error((err.into(), None)))?;
 
-            maybe_throttle(resp.throttle_time_ms.map(Int32))?;
+            maybe_throttle(resp.throttle_time_ms)?;
 
             match resp.error_code {
                 None => Ok(resp),
@@ -322,7 +319,7 @@ impl ControllerClient {
                         .await
                         .map_err(|err| ErrorOrThrottle::Error((err.into(), None)))?;
 
-                    maybe_throttle(resp.throttle_time_ms.map(Int32))?;
+                    maybe_throttle(resp.throttle_time_ms)?;
 
                     match resp.error_code {
                         None => Ok(resp),
@@ -395,7 +392,7 @@ impl ControllerClient {
                 })
                 .map_err(|err| ErrorOrThrottle::Error((err.into(), None)))?;
 
-            maybe_throttle(Some(Int32(resp.throttle_time_ms)))?;
+            maybe_throttle(Some(resp.throttle_time_ms))?;
 
             match resp.error_code {
                 None => Ok(resp),
@@ -424,7 +421,7 @@ impl ControllerClient {
             .map_err(|err| ErrorOrThrottle::Error((err, None)))?;
 
         let req = &find_coordinator::FindCoordinatorRequest {
-            key: String_(key.to_string()),
+            key: key.to_string(),
             key_type: find_coordinator::CoordinatorType::Group,
             tagged_fields: None,
         };
@@ -436,7 +433,7 @@ impl ControllerClient {
 
         maybe_throttle(Some(resp.throttle_time_ms))?;
 
-        Ok(resp.node_id.0)
+        Ok(resp.node_id)
     }
 
     pub async fn metadata(&self) -> Result<MetadataResponse> {
@@ -458,8 +455,7 @@ impl ControllerClient {
 
         let controller_id = metadata
             .controller_id
-            .ok_or_else(|| Error::InvalidResponse("Leader is NULL".to_owned()))?
-            .0;
+            .ok_or_else(|| Error::InvalidResponse("Leader is NULL".to_owned()))?;
 
         Ok(controller_id)
     }

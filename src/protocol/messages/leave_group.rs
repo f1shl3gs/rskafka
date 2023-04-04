@@ -7,11 +7,8 @@ use crate::protocol::messages::{
     read_versioned_array, write_versioned_array, ReadVersionedError, ReadVersionedType,
     RequestBody, WriteVersionedError, WriteVersionedType,
 };
-use crate::protocol::primitives::{
-    CompactNullableString, CompactNullableStringRef, CompactString, CompactStringRef, Int16, Int32,
-    NullableString, String_, TaggedFields,
-};
-use crate::protocol::traits::{ReadType, WriteType};
+use crate::protocol::primitives::TaggedFields;
+use crate::protocol::traits::{ReadCompactType, ReadType, WriteCompactType, WriteType};
 
 /// Added in version 3
 #[derive(Debug)]
@@ -20,18 +17,23 @@ pub struct Member {
     ///
     /// v == 3 STRING
     /// v >= 4 COMPACT_STRING
-    pub member_id: String_,
+    pub member_id: String,
 
     /// The group instance ID to remove from the group.
     ///
     /// v == 3 NULLABLE_STRING
     /// v >= 4 COMPACT_NULLABLE_STRING
-    pub group_instance_id: Option<NullableString>,
+    pub group_instance_id: Option<String>,
 
     /// The reason why the member left the group.
     ///
-    /// Added in version 5.
-    pub reason: Option<CompactNullableString>,
+    /// Added in version 5. COMPACT_NULLABLE_STRING
+    pub reason: String,
+
+    /// The tagged fields.
+    ///
+    /// Added in version 4
+    pub tagged_fields: Option<TaggedFields>,
 }
 
 impl<W> WriteVersionedType<W> for Member
@@ -49,32 +51,21 @@ where
         if v == 3 {
             self.member_id.write(writer)?;
         } else {
-            CompactStringRef(self.member_id.0.as_str()).write(writer)?;
+            self.member_id.write_compact(writer)?;
         }
 
         if v == 3 {
-            match self.group_instance_id.as_ref() {
-                Some(s) => s.write(writer)?,
-                None => NullableString::default().write(writer)?,
-            }
+            self.group_instance_id.write(writer)?;
         } else {
-            match self.group_instance_id.as_ref() {
-                Some(s) => {
-                    CompactNullableStringRef(s.0.as_deref()).write(writer)?;
-                }
-                None => {
-                    CompactNullableString(None).write(writer)?;
-                }
-            }
+            self.group_instance_id.write_compact(writer)?;
         }
 
         if v >= 5 {
-            match self.reason.as_ref() {
-                Some(s) => s.write(writer)?,
-                None => {
-                    CompactNullableString(None).write(writer)?;
-                }
-            }
+            self.reason.write_compact(writer)?;
+        }
+
+        if v >= 4 {
+            self.tagged_fields.write(writer)?;
         }
 
         Ok(())
@@ -84,13 +75,13 @@ where
 #[derive(Debug)]
 pub struct LeaveGroupRequest {
     /// The ID of the group to leave.
-    pub group_id: String_,
+    pub group_id: String,
 
     /// The member ID to remove from the group.
     ///
     /// Added in version 0
     /// Removed in version 3
-    pub member_id: String_,
+    pub member_id: String,
 
     /// List of leaving member identities.
     ///
@@ -152,16 +143,21 @@ pub struct LeaveGroupResponseMember {
     ///
     /// version == 3: STRING
     /// version >= 4: COMPACT_STRING
-    pub member_id: String_,
+    pub member_id: String,
 
     /// The group instance ID to remove from the group.
     ///
     /// version == 3: NULLABLE_STRING
     /// version >= 4: COMPACT_NULLABLE_STRING
-    pub group_instance_id: String_,
+    pub group_instance_id: Option<String>,
 
     /// The error code, or 0 if there was no error.
     pub error_code: Option<Error>,
+
+    /// The tagged fields.
+    ///
+    /// Added in version 4
+    pub tagged_fields: Option<TaggedFields>,
 }
 
 impl<R> ReadVersionedType<R> for LeaveGroupResponseMember
@@ -173,25 +169,26 @@ where
         assert!(v <= 5 && v >= 3);
 
         let member_id = if v < 4 {
-            String_::read(reader)?
+            String::read(reader)?
         } else {
-            let n = CompactString::read(reader)?;
-            String_(n.0)
+            String::read_compact(reader)?
         };
 
         let group_instance_id = if v < 4 {
-            String_::read(reader)?
+            ReadType::read(reader)?
         } else {
-            let n = CompactString::read(reader)?;
-            String_(n.0)
+            ReadCompactType::read_compact(reader)?
         };
 
-        let error_code = Error::new(Int16::read(reader)?.0);
+        let error_code = Error::new(i16::read(reader)?);
+
+        let tagged_fields = (v >= 4).then(|| TaggedFields::read(reader)).transpose()?;
 
         Ok(Self {
             member_id,
             group_instance_id,
             error_code,
+            tagged_fields,
         })
     }
 }
@@ -202,7 +199,7 @@ pub struct LeaveGroupResponse {
     /// quota violation, or zero if the request did not violate any quota.
     ///
     /// Added in version 1.
-    pub throttle_time_ms: Option<Int32>,
+    pub throttle_time_ms: Option<i32>,
 
     /// The error code, or 0 if there was no error.
     pub error_code: Option<Error>,
@@ -226,8 +223,8 @@ where
         let v = version.0;
         assert!(v <= 5);
 
-        let throttle_time_ms = (v >= 1).then(|| Int32::read(reader)).transpose()?;
-        let error_code = Error::new(Int16::read(reader)?.0);
+        let throttle_time_ms = (v >= 1).then(|| i32::read(reader)).transpose()?;
+        let error_code = Error::new(i16::read(reader)?);
 
         let members = if v >= 3 {
             read_versioned_array(reader, version)?.unwrap_or_default()

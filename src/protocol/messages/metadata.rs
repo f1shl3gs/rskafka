@@ -9,7 +9,6 @@ use crate::protocol::{
     api_key::ApiKey,
     api_version::ApiVersion,
     error::Error,
-    primitives::*,
     traits::{ReadType, WriteType},
 };
 
@@ -24,7 +23,7 @@ pub struct MetadataRequest {
     /// which do not already exist, if it is configured to do so.
     ///
     /// Added in version 4
-    pub allow_auto_topic_creation: Option<Boolean>,
+    pub allow_auto_topic_creation: Option<bool>,
 }
 
 impl RequestBody for MetadataRequest {
@@ -61,7 +60,7 @@ where
         if v >= 4 {
             match self.allow_auto_topic_creation {
                 // The default behaviour is to allow topic creation
-                None => Boolean(true).write(writer)?,
+                None => true.write(writer)?,
                 Some(b) => b.write(writer)?,
             }
         }
@@ -72,7 +71,7 @@ where
 #[derive(Debug)]
 pub struct MetadataRequestTopic {
     /// The topic name
-    pub name: String_,
+    pub name: String,
 }
 
 impl<W> WriteVersionedType<W> for MetadataRequestTopic
@@ -95,7 +94,7 @@ pub struct MetadataResponse {
     /// a quota violation, or zero if the request did not violate any quota.
     ///
     /// Added in version 3
-    pub throttle_time_ms: Option<Int32>,
+    pub throttle_time_ms: Option<i32>,
 
     /// Each broker in the response
     pub brokers: Vec<MetadataResponseBroker>,
@@ -103,12 +102,12 @@ pub struct MetadataResponse {
     /// The cluster ID that responding broker belongs to.
     ///
     /// Added in version 2
-    pub cluster_id: Option<NullableString>,
+    pub cluster_id: Option<String>,
 
     /// The ID of the controller broker.
     ///
     /// Added in version 1
-    pub controller_id: Option<Int32>,
+    pub controller_id: Option<i32>,
 
     /// Each topic in the response
     pub topics: Vec<MetadataResponseTopic>,
@@ -122,10 +121,14 @@ where
         let v = version.0;
         assert!(v <= 4);
 
-        let throttle_time_ms = (v >= 3).then(|| Int32::read(reader)).transpose()?;
+        let throttle_time_ms = (v >= 3).then(|| i32::read(reader)).transpose()?;
         let brokers = read_versioned_array(reader, version)?.unwrap_or_default();
-        let cluster_id = (v >= 2).then(|| NullableString::read(reader)).transpose()?;
-        let controller_id = (v >= 1).then(|| Int32::read(reader)).transpose()?;
+        let cluster_id = if v >= 2 {
+            ReadType::read(reader)?
+        } else {
+            None
+        };
+        let controller_id = (v >= 1).then(|| i32::read(reader)).transpose()?;
         let topics = read_versioned_array(reader, version)?.unwrap_or_default();
 
         Ok(Self {
@@ -141,13 +144,17 @@ where
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct MetadataResponseBroker {
     /// The broker ID
-    pub node_id: Int32,
+    pub node_id: i32,
+
     /// The broker hostname
-    pub host: String_,
+    pub host: String,
+
     /// The broker port
-    pub port: Int32,
+    pub port: i32,
+
+    /// The rack of the broker, or null if it has not been assigned to a rack.
     /// Added in version 1
-    pub rack: Option<NullableString>,
+    pub rack: Option<String>,
 }
 
 impl<R> ReadVersionedType<R> for MetadataResponseBroker
@@ -158,10 +165,14 @@ where
         let v = version.0;
         assert!(v <= 4);
 
-        let node_id = Int32::read(reader)?;
-        let host = String_::read(reader)?;
-        let port = Int32::read(reader)?;
-        let rack = (v >= 1).then(|| NullableString::read(reader)).transpose()?;
+        let node_id = i32::read(reader)?;
+        let host = String::read(reader)?;
+        let port = i32::read(reader)?;
+        let rack = if v >= 1 {
+            ReadType::read(reader)?
+        } else {
+            None
+        };
 
         Ok(Self {
             node_id,
@@ -176,10 +187,13 @@ where
 pub struct MetadataResponseTopic {
     /// The topic error if any
     pub error: Option<Error>,
+
     /// The topic name
-    pub name: String_,
+    pub name: String,
+
     /// True if the topic is internal
-    pub is_internal: Option<Boolean>,
+    pub is_internal: Option<bool>,
+
     /// Each partition in the topic
     pub partitions: Vec<MetadataResponsePartition>,
 }
@@ -192,9 +206,9 @@ where
         let v = version.0;
         assert!(v <= 4);
 
-        let error = Error::new(Int16::read(reader)?.0);
-        let name = String_::read(reader)?;
-        let is_internal = (v >= 1).then(|| Boolean::read(reader)).transpose()?;
+        let error = Error::new(i16::read(reader)?);
+        let name = String::read(reader)?;
+        let is_internal = (v >= 1).then(|| bool::read(reader)).transpose()?;
         let partitions = read_versioned_array(reader, version)?.unwrap_or_default();
 
         Ok(Self {
@@ -210,14 +224,18 @@ where
 pub struct MetadataResponsePartition {
     /// The partition error if any
     pub error: Option<Error>,
+
     /// The partition index
-    pub partition_index: Int32,
+    pub partition_index: i32,
+
     /// The ID of the leader broker
-    pub leader_id: Int32,
+    pub leader_id: i32,
+
     /// The set of all nodes that host this partition
-    pub replica_nodes: Array<Int32>,
+    pub replica_nodes: Vec<i32>,
+
     /// The set of all nodes that are in sync with the leader for this partition
-    pub isr_nodes: Array<Int32>,
+    pub isr_nodes: Vec<i32>,
 }
 
 impl<R> ReadVersionedType<R> for MetadataResponsePartition
@@ -229,11 +247,11 @@ where
         assert!(v <= 4);
 
         Ok(Self {
-            error: Error::new(Int16::read(reader)?.0),
-            partition_index: Int32::read(reader)?,
-            leader_id: Int32::read(reader)?,
-            replica_nodes: Array::read(reader)?,
-            isr_nodes: Array::read(reader)?,
+            error: Error::new(i16::read(reader)?),
+            partition_index: i32::read(reader)?,
+            leader_id: i32::read(reader)?,
+            replica_nodes: ReadType::read(reader)?,
+            isr_nodes: ReadType::read(reader)?,
         })
     }
 }

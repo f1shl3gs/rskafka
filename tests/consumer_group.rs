@@ -1,69 +1,32 @@
-use futures_util::future::join_all;
-use futures_util::{FutureExt, StreamExt};
 use std::collections::BTreeMap;
 use std::io::Cursor;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{error, info, warn};
-use tracing_subscriber::FmtSubscriber;
 
-use crate::test_helpers::{random_topic_name, start_logging};
+use futures_util::{FutureExt, StreamExt};
 use rskafka::client::consumer::{StartOffset, StreamConsumerBuilder};
 use rskafka::client::error::{Error, ProtocolError};
 use rskafka::client::partition::{Compression, UnknownTopicHandling};
-use rskafka::client::{Client, ClientBuilder};
-use rskafka::protocol::messages::{Assignment, ConsumerGroupMemberAssignment, ConsumerGroupMemberMetadata, heartbeat, PartitionAssignment};
+use rskafka::client::ClientBuilder;
+use rskafka::protocol::messages::{
+    heartbeat, Assignment, ConsumerGroupMemberAssignment, ConsumerGroupMemberMetadata,
+    PartitionAssignment,
+};
 use rskafka::protocol::traits::{ReadType, WriteType};
 use rskafka::record::{Record, RecordAndOffset};
 use rskafka::topic::Topic;
+use tracing::{error, info, warn};
+use tracing_subscriber::FmtSubscriber;
 
-pub enum BalanceStrategy {
-    RoundRobing,
-    Range,
-}
+use crate::test_helpers::start_logging;
 
-pub struct ConsumerGroup {
-    client: Client,
-    group_id: String,
-    topics: Vec<String>,
-
-    /// The timeout used to detect consumer failures when using Kafka's group
-    /// management facility. The consumer sends periodic heartbeats to indicate its
-    /// liveness to the broker. If no heartbeats are received by the broker before
-    /// the expiration of this session timeout, then the broker will remove this
-    /// consumer from the group and initiate a rebalance.
-    ///
-    /// Note that the value must be in the allowable range as configured in the
-    /// broker configuration by `group.min.session.timeout.ms` and
-    /// `group.max.session.timeout.ms` (default 10s).
-    session_timeout: Duration,
-
-    /// The expected time between heartbeats to the consumer coordinator when using
-    /// Kafka's group management facilities. Heartbeats are used to ensure that the
-    /// consumer's session stays active and to facilitate rebalancing when new
-    /// consumers join or leave the group.
-    /// The value must be set lower than `session_timeout`, but typically should
-    /// be set no higher than 1/3 of that value.
-    /// It can be adjusted even lower to control the expected time for normal
-    /// rebalances (default 3s).
-    heartbeat_interval: Duration,
-}
-
-impl ConsumerGroup {
-    pub fn new(client: Client, group_id: String, topics: Vec<String>) -> Self {
-        Self {
-            client,
-            group_id,
-            topics,
-            session_timeout: Duration::from_secs(10),
-            heartbeat_interval: Duration::from_secs(3),
-        }
-    }
-}
-
+#[ignore]
 #[tokio::test]
 async fn produce() {
-    start_logging();
+    let subscriber = FmtSubscriber::new();
+    tracing::subscriber::set_global_default(subscriber)
+        .map_err(|_err| eprintln!("Unable to set global default subscriber"))
+        .unwrap();
 
     let bootstrap_brokers = vec!["localhost:9010".to_string()];
     let client = ClientBuilder::new(bootstrap_brokers).build().await.unwrap();
@@ -109,12 +72,15 @@ async fn produce() {
         .await
         .unwrap();
 
+        info!("produce done");
+
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
 }
 
 mod test_helpers;
 
+#[ignore]
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn consumer_group() {
     let subscriber = FmtSubscriber::new();
@@ -178,7 +144,6 @@ async fn consumer_group() {
                 join.member_id.clone(),
                 None,
                 assignments.unwrap_or_default(),
-
             )
             .await
             .unwrap();
@@ -451,7 +416,7 @@ mod tests {
             ),
         ] {
             members.sort();
-            let mut members = members
+            let members = members
                 .iter()
                 .map(|(id, topics)| {
                     let meta = ConsumerGroupMemberMetadata {

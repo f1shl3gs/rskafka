@@ -5,7 +5,7 @@ use crate::protocol::{
     api_version::{ApiVersion, ApiVersionRange},
     error::Error as ApiError,
     messages::{read_versioned_array, write_versioned_array, IsolationLevel},
-    primitives::{Int16, Int32, Int64, Int8, Records, String_},
+    primitives::Records,
     traits::{ReadType, WriteType},
 };
 
@@ -14,18 +14,17 @@ use super::{
 };
 
 #[derive(Debug)]
-#[allow(missing_copy_implementations)]
 pub struct FetchRequestPartition {
     /// The partition index.
-    pub partition: Int32,
+    pub partition: i32,
 
     /// The message offset.
-    pub fetch_offset: Int64,
+    pub fetch_offset: i64,
 
     /// The maximum bytes to fetch from this partition.
     ///
     /// See KIP-74 for cases where this limit may not be honored.
-    pub partition_max_bytes: Int32,
+    pub partition_max_bytes: i32,
 }
 
 impl<W> WriteVersionedType<W> for FetchRequestPartition
@@ -51,7 +50,7 @@ where
 #[derive(Debug)]
 pub struct FetchRequestTopic {
     /// The name of the topic to fetch.
-    pub topic: String_,
+    pub topic: String,
 
     /// The partitions to fetch.
     pub partitions: Vec<FetchRequestPartition>,
@@ -79,20 +78,20 @@ where
 #[derive(Debug)]
 pub struct FetchRequest {
     /// The broker ID of the follower, of -1 if this request is from a consumer.
-    pub replica_id: Int32,
+    pub replica_id: i32,
 
     /// The maximum time in milliseconds to wait for the response.
-    pub max_wait_ms: Int32,
+    pub max_wait_ms: i32,
 
     /// The minimum bytes to accumulate in the response.
-    pub min_bytes: Int32,
+    pub min_bytes: i32,
 
     /// The maximum bytes to fetch. See KIP-74 for cases where this limit may not be honored.
     ///
     /// Defaults to "no limit / max".
     ///
     /// Added in version 3.
-    pub max_bytes: Option<Int32>,
+    pub max_bytes: Option<i32>,
 
     /// This setting controls the visibility of transactional records.
     ///
@@ -131,12 +130,12 @@ where
 
         if v >= 3 {
             // defaults to "no limit / max".
-            self.max_bytes.unwrap_or(Int32(i32::MAX)).write(writer)?;
+            self.max_bytes.unwrap_or(i32::MAX).write(writer)?;
         }
 
         if v >= 4 {
             // The default is `READ_UNCOMMITTED`.
-            let level: Int8 = self.isolation_level.unwrap_or_default().into();
+            let level: i8 = self.isolation_level.unwrap_or_default().into();
             level.write(writer)?;
         }
 
@@ -163,13 +162,12 @@ impl RequestBody for FetchRequest {
 }
 
 #[derive(Debug)]
-#[allow(missing_copy_implementations)]
 pub struct FetchResponseAbortedTransaction {
     /// The producer id associated with the aborted transaction.
-    pub producer_id: Int64,
+    pub producer_id: i64,
 
     /// The first offset in the aborted transaction.
-    pub first_offset: Int64,
+    pub first_offset: i64,
 }
 
 impl<R> ReadVersionedType<R> for FetchResponseAbortedTransaction
@@ -181,8 +179,8 @@ where
         assert!(4 <= v && v <= 4);
 
         Ok(Self {
-            producer_id: Int64::read(reader)?,
-            first_offset: Int64::read(reader)?,
+            producer_id: i64::read(reader)?,
+            first_offset: i64::read(reader)?,
         })
     }
 }
@@ -190,13 +188,13 @@ where
 #[derive(Debug)]
 pub struct FetchResponsePartition {
     /// The partition index.
-    pub partition_index: Int32,
+    pub partition_index: i32,
 
     /// The error code, or 0 if there was no fetch error.
     pub error_code: Option<ApiError>,
 
     /// The current high water mark.
-    pub high_watermark: Int64,
+    pub high_watermark: i64,
 
     /// The last stable offset (or LSO) of the partition.
     ///
@@ -204,7 +202,7 @@ pub struct FetchResponsePartition {
     /// (`ABORTED` or `COMMITTED`).
     ///
     /// Added in version 4.
-    pub last_stable_offset: Option<Int64>,
+    pub last_stable_offset: Option<i64>,
 
     /// The aborted transactions.
     ///
@@ -224,10 +222,10 @@ where
         assert!(v <= 4);
 
         Ok(Self {
-            partition_index: Int32::read(reader)?,
-            error_code: ApiError::new(Int16::read(reader)?.0),
-            high_watermark: Int64::read(reader)?,
-            last_stable_offset: (v >= 4).then(|| Int64::read(reader)).transpose()?,
+            partition_index: i32::read(reader)?,
+            error_code: ApiError::new(i16::read(reader)?),
+            high_watermark: i64::read(reader)?,
+            last_stable_offset: (v >= 4).then(|| i64::read(reader)).transpose()?,
             aborted_transactions: (v >= 4)
                 .then(|| read_versioned_array(reader, version))
                 .transpose()?
@@ -241,7 +239,7 @@ where
 #[derive(Debug)]
 pub struct FetchResponseTopic {
     /// The topic name.
-    pub topic: String_,
+    pub topic: String,
 
     /// The topic partitions.
     pub partitions: Vec<FetchResponsePartition>,
@@ -256,7 +254,7 @@ where
         assert!(v <= 4);
 
         Ok(Self {
-            topic: String_::read(reader)?,
+            topic: String::read(reader)?,
             partitions: read_versioned_array(reader, version)?.unwrap_or_default(),
         })
     }
@@ -267,7 +265,7 @@ pub struct FetchResponse {
     /// The duration in milliseconds for which the request was throttled due to a quota violation, or zero if the request did not violate any quota.
     ///
     /// Added in version 1.
-    pub throttle_time_ms: Option<Int32>,
+    pub throttle_time_ms: Option<i32>,
 
     /// The response topics.
     pub responses: Vec<FetchResponseTopic>,
@@ -282,7 +280,7 @@ where
         assert!(v <= 4);
 
         Ok(Self {
-            throttle_time_ms: (v >= 1).then(|| Int32::read(reader)).transpose()?,
+            throttle_time_ms: (v >= 1).then(|| i32::read(reader)).transpose()?,
             responses: read_versioned_array(reader, version)?.unwrap_or_default(),
         })
     }

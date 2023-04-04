@@ -14,7 +14,7 @@ use rskafka::{
             ApiVersionsRequest, CreateTopicsRequest, FetchRequest, ListOffsetsRequest,
             MetadataRequest, ProduceRequest, ReadVersionedType, RequestBody, WriteVersionedType,
         },
-        primitives::{CompactString, Int16, Int32, NullableString, TaggedFields},
+        primitives::TaggedFields,
         traits::ReadType,
     },
 };
@@ -35,8 +35,8 @@ fn driver(data: &[u8]) -> Result<(), Error> {
     match api_key {
         ApiKey::ApiVersions => send_recv(
             ApiVersionsRequest {
-                client_software_name: Some(CompactString(String::new())),
-                client_software_version: Some(CompactString(String::new())),
+                client_software_name: Some(String::new()),
+                client_software_version: Some(String::new()),
                 tagged_fields: Some(TaggedFields::default()),
             },
             cursor,
@@ -46,8 +46,8 @@ fn driver(data: &[u8]) -> Result<(), Error> {
         ApiKey::CreateTopics => send_recv(
             CreateTopicsRequest {
                 topics: vec![],
-                timeout_ms: Int32(0),
-                validate_only: None,
+                timeout_ms: 0,
+                validate_only: false,
                 tagged_fields: None,
             },
             cursor,
@@ -56,9 +56,9 @@ fn driver(data: &[u8]) -> Result<(), Error> {
         ),
         ApiKey::Fetch => send_recv(
             FetchRequest {
-                replica_id: Int32(0),
-                max_wait_ms: Int32(0),
-                min_bytes: Int32(0),
+                replica_id: 0,
+                max_wait_ms: 0,
+                min_bytes: 0,
                 max_bytes: None,
                 isolation_level: None,
                 topics: vec![],
@@ -69,7 +69,7 @@ fn driver(data: &[u8]) -> Result<(), Error> {
         ),
         ApiKey::ListOffsets => send_recv(
             ListOffsetsRequest {
-                replica_id: Int32(0),
+                replica_id: 0,
                 isolation_level: None,
                 topics: vec![],
             },
@@ -88,9 +88,9 @@ fn driver(data: &[u8]) -> Result<(), Error> {
         ),
         ApiKey::Produce => send_recv(
             ProduceRequest {
-                transactional_id: NullableString(None),
-                acks: Int16(0),
-                timeout_ms: Int32(0),
+                transactional_id: None,
+                acks: 0,
+                timeout_ms: 0,
                 topic_data: vec![],
             },
             cursor,

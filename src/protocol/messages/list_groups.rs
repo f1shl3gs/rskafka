@@ -7,8 +7,8 @@ use crate::protocol::messages::{
     read_versioned_array, ReadVersionedError, ReadVersionedType, RequestBody, WriteVersionedError,
     WriteVersionedType,
 };
-use crate::protocol::primitives::{Array, CompactString, Int16, Int32, String_, TaggedFields};
-use crate::protocol::traits::{ReadType, WriteType};
+use crate::protocol::primitives::TaggedFields;
+use crate::protocol::traits::{ReadCompactType, ReadType, WriteCompactType, WriteType};
 
 #[derive(Debug)]
 pub struct ListGroupsRequest {
@@ -16,7 +16,7 @@ pub struct ListGroupsRequest {
     /// are returned with their state.
     ///
     /// Added in version 4
-    pub states_filter: Array<CompactString>,
+    pub states_filter: Vec<String>,
 
     /// The tagged fields.
     ///
@@ -37,16 +37,11 @@ where
         assert!(v <= 4);
 
         if v >= 4 {
-            self.states_filter.write(writer)?;
+            self.states_filter.write_compact(writer)?;
         }
 
         if v >= 3 {
-            match self.tagged_fields.as_ref() {
-                Some(tagged_fields) => {
-                    tagged_fields.write(writer)?;
-                }
-                None => TaggedFields::default().write(writer)?,
-            }
+            self.tagged_fields.write(writer)?;
         }
 
         Ok(())
@@ -58,7 +53,7 @@ impl RequestBody for ListGroupsRequest {
 
     const API_KEY: ApiKey = ApiKey::ListGroups;
 
-    const API_VERSION_RANGE: ApiVersionRange = ApiVersionRange::new(0, 0);
+    const API_VERSION_RANGE: ApiVersionRange = ApiVersionRange::new(0, 4);
 
     const FIRST_TAGGED_FIELD_IN_REQUEST_VERSION: ApiVersion = ApiVersion::new(3);
 }
@@ -69,18 +64,23 @@ pub struct Group {
     ///
     /// v < 4  STRING
     /// v >= 4 COMPACT_STRING
-    pub group_id: String_,
+    pub group_id: String,
 
     /// The group protocol type.
     ///
     /// v < 4  STRING
     /// v >= 4 COMPACT_STRING
-    pub protocol_type: String_,
+    pub protocol_type: String,
 
     /// The group state name.
     ///
-    /// Added in version 4
-    pub group_state: Option<CompactString>,
+    /// Added in version 4, COMPACT_STRING
+    pub group_state: String,
+
+    /// The tagged fields.
+    ///
+    /// Added in version 3
+    pub tagged_fields: Option<TaggedFields>,
 }
 
 impl<R> ReadVersionedType<R> for Group
@@ -92,25 +92,30 @@ where
         assert!(v <= 4);
 
         let group_id = if v < 4 {
-            String_::read(reader)?
+            String::read(reader)?
         } else {
-            let n = CompactString::read(reader)?;
-            String_(n.0)
+            String::read_compact(reader)?
         };
 
         let protocol_type = if v < 4 {
-            String_::read(reader)?
+            String::read(reader)?
         } else {
-            let n = CompactString::read(reader)?;
-            String_(n.0)
+            String::read_compact(reader)?
         };
 
-        let group_state = (v >= 4).then(|| CompactString::read(reader)).transpose()?;
+        let group_state = if v >= 4 {
+            String::read_compact(reader)?
+        } else {
+            String::new()
+        };
+
+        let tagged_fields = (v >= 3).then(|| TaggedFields::read(reader)).transpose()?;
 
         Ok(Self {
             group_id,
             protocol_type,
             group_state,
+            tagged_fields,
         })
     }
 }
@@ -121,7 +126,7 @@ pub struct ListGroupsResponse {
     /// quota violation, or zero if the request did not violate any quota.
     ///
     /// Added in version 1
-    pub throttle_time_ms: Option<Int32>,
+    pub throttle_time_ms: i32,
 
     /// The error code, or 0 if there was no error.
     pub error_code: Option<Error>,
@@ -143,8 +148,11 @@ where
         let v = version.0;
         assert!(v <= 4);
 
-        let throttle_time_ms = (v >= 1).then(|| Int32::read(reader)).transpose()?;
-        let error_code = Error::new(Int16::read(reader)?.0);
+        let throttle_time_ms = (v >= 1)
+            .then(|| i32::read(reader))
+            .transpose()?
+            .unwrap_or_default();
+        let error_code = Error::new(i16::read(reader)?);
         let groups = read_versioned_array(reader, version)?.unwrap_or_default();
         let tagged_fields = (v >= 3).then(|| TaggedFields::read(reader)).transpose()?;
 

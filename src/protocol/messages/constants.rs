@@ -1,7 +1,5 @@
-use crate::protocol::primitives::{Int32, Int8};
-
 /// The `replica_id` to use to signify the request is being made by a normal consumer.
-pub const NORMAL_CONSUMER: Int32 = Int32(-1);
+pub const NORMAL_CONSUMER: i32 = -1;
 
 /// Using `READ_UNCOMMITTED` (`isolation_level = 0`) makes all records visible. With `READ_COMMITTED`
 /// (`isolation_level = 1`), non-transactional and `COMMITTED` transactional records are visible. To be more
@@ -20,11 +18,11 @@ pub enum IsolationLevel {
     ReadUncommitted,
 }
 
-impl From<IsolationLevel> for Int8 {
+impl From<IsolationLevel> for i8 {
     fn from(isolation_level: IsolationLevel) -> Self {
         match isolation_level {
-            IsolationLevel::ReadCommitted => Self(1),
-            IsolationLevel::ReadUncommitted => Self(0),
+            IsolationLevel::ReadCommitted => 1,
+            IsolationLevel::ReadUncommitted => 0,
         }
     }
 }
