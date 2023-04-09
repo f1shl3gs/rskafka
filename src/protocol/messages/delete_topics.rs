@@ -140,9 +140,12 @@ where
             String::read(reader)?
         };
         let error = Error::new(i16::read(reader)?);
-        let error_message = (v >= 5)
-            .then(|| ReadCompactType::read_compact(reader))
-            .transpose()?;
+        let error_message = if v >= 5 {
+            ReadCompactType::read_compact(reader)?
+        } else {
+            None
+        };
+
         let tagged_fields = (v >= 4).then(|| TaggedFields::read(reader)).transpose()?;
 
         Ok(Self {

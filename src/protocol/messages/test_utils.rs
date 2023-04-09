@@ -42,3 +42,24 @@ macro_rules! test_roundtrip_versioned {
 }
 
 pub(crate) use test_roundtrip_versioned;
+
+macro_rules! assert_write_versioned {
+    ($req:expr, $version:expr, $want: expr) => {
+        let mut buf = Vec::new();
+        $req.write_versioned(&mut buf, ApiVersion::new($version))
+            .unwrap();
+        assert_eq!(buf, $want);
+    };
+}
+
+pub(crate) use assert_write_versioned;
+
+macro_rules! assert_read_versioned {
+    ($input:expr, $version:expr, $want:expr) => {
+        let mut reader = std::io::Cursor::new($input);
+        let got = OffsetFetchResponse::read_versioned(&mut reader, ApiVersion::new(0)).unwrap();
+        assert_eq!($want, got);
+    };
+}
+
+pub(crate) use assert_read_versioned;

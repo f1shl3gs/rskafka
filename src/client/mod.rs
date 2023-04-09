@@ -25,6 +25,14 @@ use error::{Error, Result};
 
 use self::{controller::ControllerClient, partition::UnknownTopicHandling};
 
+/// DEFAULT_SESSION_TIMEOUT_MS contains the default interval the coordinator will wait
+/// for a heartbeat before marking a consumer as dead.
+pub const DEFAULT_SESSION_TIMEOUT_MS: i32 = 30 * 1000;
+
+/// DEFAULT_REBALANCE_TIMEOUT_MS contains the amount of time the coordinator will wait
+/// for consumers to issue a join group once a rebalance has been requested.
+pub const DEFAULT_REBALANCE_TIMEOUT_MS: i32 = 30 * 1000;
+
 #[derive(Debug, Error)]
 pub enum ProduceError {
     #[error("Broker error: {0}")]
@@ -130,12 +138,8 @@ impl Client {
         Ok(ControllerClient::new(Arc::clone(&self.brokers)))
     }
 
-    pub async fn consumer_group(
-        &self,
-        group: String,
-        topics: Vec<String>,
-    ) -> Result<ConsumerGroup> {
-        todo!()
+    pub async fn consumer_group(&self, group: String, topics: &[Topic]) -> Result<ConsumerGroup> {
+        ConsumerGroup::new(self.brokers.clone(), group, topics).await
     }
 
     /// Returns a client for performing operations on a specific partition

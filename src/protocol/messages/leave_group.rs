@@ -28,7 +28,7 @@ pub struct Member {
     /// The reason why the member left the group.
     ///
     /// Added in version 5. COMPACT_NULLABLE_STRING
-    pub reason: String,
+    pub reason: Option<String>,
 
     /// The tagged fields.
     ///
@@ -106,18 +106,22 @@ where
         let v = version.0;
         assert!(v <= 5);
 
-        self.group_id.write(writer)?;
+        if v >= 4 {
+            self.group_id.write_compact(writer)?;
+        } else {
+            self.group_id.write(writer)?;
+        }
+
         if v < 3 {
             self.member_id.write(writer)?;
         }
 
         if v >= 3 {
             write_versioned_array(writer, version, Some(&self.members))?;
+        }
 
-            match self.tagged_fields.as_ref() {
-                Some(tagged_fields) => tagged_fields.write(writer)?,
-                None => TaggedFields::default().write(writer)?,
-            }
+        if v >= 4 {
+            self.tagged_fields.write(writer)?;
         }
 
         Ok(())
@@ -129,7 +133,7 @@ impl RequestBody for LeaveGroupRequest {
 
     const API_KEY: ApiKey = ApiKey::LeaveGroup;
 
-    const API_VERSION_RANGE: ApiVersionRange = ApiVersionRange::new(0, 5);
+    const API_VERSION_RANGE: ApiVersionRange = ApiVersionRange::new(0, 2);
 
     const FIRST_TAGGED_FIELD_IN_REQUEST_VERSION: ApiVersion = ApiVersion::new(4);
 }
@@ -182,7 +186,11 @@ where
 
         let error_code = Error::new(i16::read(reader)?);
 
-        let tagged_fields = (v >= 4).then(|| TaggedFields::read(reader)).transpose()?;
+        let tagged_fields = if v >= 4 {
+            Some(TaggedFields::read(reader)?)
+        } else {
+            None
+        };
 
         Ok(Self {
             member_id,

@@ -110,6 +110,13 @@ impl Error {
             "Expected a single partition in response, got {len}"
         ))
     }
+
+    pub fn protocol_error(&self) -> Option<ProtocolError> {
+        match self {
+            Self::ServerError { protocol_error, .. } => Some(protocol_error.clone()),
+            _ => None,
+        }
+    }
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;

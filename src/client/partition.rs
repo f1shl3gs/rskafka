@@ -631,7 +631,7 @@ where
                 ControlFlow::Continue(ErrorOrThrottle::Error(error))
             } else {
                 error!(
-                    e=%error,
+                    err=%error,
                     request_name,
                     "request encountered fatal error",
                 );

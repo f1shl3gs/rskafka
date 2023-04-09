@@ -9,15 +9,15 @@ use crate::protocol::messages::{
 use crate::protocol::traits::{ReadType, WriteType};
 
 #[derive(Debug)]
-pub struct HeartbeatRequest {
+pub struct HeartbeatRequest<'a> {
     /// The group id.
-    pub group_id: String,
+    pub group_id: &'a str,
 
     /// The generation of the group.
     pub generation_id: i32,
 
     /// The member ID
-    pub member_id: String,
+    pub member_id: &'a str,
 
     /// The unique identifier of the consumer instance provided by end user.
     ///
@@ -25,7 +25,7 @@ pub struct HeartbeatRequest {
     pub group_instance_id: Option<String>,
 }
 
-impl<W> WriteVersionedType<W> for HeartbeatRequest
+impl<W> WriteVersionedType<W> for HeartbeatRequest<'_>
 where
     W: Write,
 {
@@ -49,7 +49,7 @@ where
     }
 }
 
-impl RequestBody for HeartbeatRequest {
+impl RequestBody for HeartbeatRequest<'_> {
     type ResponseBody = HeartbeatResponse;
 
     const API_KEY: ApiKey = ApiKey::Heartbeat;

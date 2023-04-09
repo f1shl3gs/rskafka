@@ -5,11 +5,7 @@ use async_trait::async_trait;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info};
 
-use crate::protocol::messages::{
-    heartbeat, Assignment, ConsumerGroupMemberMetadata, JoinGroupRequest, JoinGroupResponse,
-    MetadataResponse, SyncGroupRequest, SyncGroupResponse,
-};
-use crate::protocol::traits::WriteType;
+use crate::protocol::messages::MetadataResponse;
 use crate::{
     backoff::{Backoff, BackoffConfig, ErrorOrThrottle},
     client::{Error, Result},
@@ -21,8 +17,8 @@ use crate::{
     protocol::{
         error::Error as ProtocolError,
         messages::{
-            find_coordinator, join_group, list_groups, CreateTopicRequest, CreateTopicsRequest,
-            DeleteTopicsRequest, DescribeGroupsRequest, Group,
+            list_groups, CreateTopicRequest, CreateTopicsRequest, DeleteTopicsRequest,
+            DescribeGroupsRequest, Group,
         },
     },
     throttle::maybe_throttle,
@@ -30,14 +26,6 @@ use crate::{
 };
 
 use super::error::RequestContext;
-
-/// DEFAULT_SESSION_TIMEOUT_MS contains the default interval the coordinator will wait
-/// for a heartbeat before marking a consumer as dead.
-const DEFAULT_SESSION_TIMEOUT_MS: i32 = 30 * 1000;
-
-/// DEFAULT_REBALANCE_TIMEOUT_MS contains the amount of time the coordinator will wait
-/// for consumers to issue a join group once a rebalance has been requested.
-const DEFAULT_REBALANCE_TIMEOUT_MS: i32 = 30 * 1000;
 
 #[derive(Debug)]
 pub struct ControllerClient {
@@ -219,223 +207,6 @@ impl ControllerClient {
         .await
     }
 
-    pub async fn heartbeat(
-        &self,
-        req: &heartbeat::HeartbeatRequest,
-    ) -> Result<heartbeat::HeartbeatResponse> {
-        maybe_retry(&self.backoff_config, self, "heartbeat", || async {
-            let coordinator_id = self.get_coordinator(&req.group_id).await?;
-
-            let broker = self
-                .brokers
-                .connect(coordinator_id)
-                .await
-                .map_err(|err| ErrorOrThrottle::Error((err.into(), None)))?
-                .ok_or(ErrorOrThrottle::Error((
-                    Error::InvalidResponse(format!("Coordinator {} not found", coordinator_id)),
-                    None,
-                )))?;
-
-            let resp = broker
-                .request(req)
-                .await
-                .map_err(|err| ErrorOrThrottle::Error((err.into(), None)))?;
-
-            maybe_throttle(Some(resp.throttle_time_ms))?;
-
-            match resp.error_code {
-                None => Ok(resp),
-                Some(protocol_error) => Err(ErrorOrThrottle::Error((
-                    Error::ServerError {
-                        protocol_error,
-                        error_message: Some("heartbeat failed".to_string()),
-                        request: RequestContext::Group(req.group_id.clone()),
-                        response: None,
-                        is_virtual: false,
-                    },
-                    None,
-                ))),
-            }
-        })
-        .await
-    }
-
-    /// join_group join the group and return member_id
-    pub async fn join_group(
-        &self,
-        group_id: &str,
-        topics: Vec<String>,
-    ) -> Result<JoinGroupResponse> {
-        let meta = ConsumerGroupMemberMetadata {
-            version: 0,
-            topics,
-            user_data: vec![],
-            owned_partitions: vec![],
-        };
-        let mut metadata = Vec::new();
-        meta.write(&mut metadata).expect("encode success");
-
-        let req = &JoinGroupRequest {
-            group_id: group_id.to_string(),
-            session_timeout_ms: DEFAULT_SESSION_TIMEOUT_MS,
-            rebalance_timeout_ms: DEFAULT_REBALANCE_TIMEOUT_MS,
-            member_id: String::new(),
-            group_instance_id: None,
-            protocol_type: "consumer".to_string(),
-            protocols: vec![join_group::Protocol {
-                name: "roundrobin".to_string(),
-                metadata,
-            }],
-        };
-
-        maybe_retry(&self.backoff_config, self, "join_group", || async move {
-            let coordinator_id = self.get_coordinator(group_id).await?;
-
-            let broker = self
-                .brokers
-                .connect(coordinator_id)
-                .await
-                .map_err(|err| ErrorOrThrottle::Error((err.into(), None)))?
-                .ok_or(ErrorOrThrottle::Error((
-                    Error::InvalidResponse(format!("Coordinator {} not found", coordinator_id)),
-                    None,
-                )))?;
-
-            let resp = broker
-                .request(req)
-                .await
-                .map_err(|err| ErrorOrThrottle::Error((err.into(), None)))?;
-
-            maybe_throttle(resp.throttle_time_ms)?;
-
-            match resp.error_code {
-                None => Ok(resp),
-                Some(ProtocolError::MemberIdRequired) => {
-                    let mut new_req = req.clone();
-                    new_req.member_id = resp.member_id;
-
-                    let resp = broker
-                        .request(&new_req)
-                        .await
-                        .map_err(|err| ErrorOrThrottle::Error((err.into(), None)))?;
-
-                    maybe_throttle(resp.throttle_time_ms)?;
-
-                    match resp.error_code {
-                        None => Ok(resp),
-                        Some(protocol_error) => Err(ErrorOrThrottle::Error((
-                            Error::ServerError {
-                                protocol_error,
-                                error_message: Some("join group failed".to_string()),
-                                request: RequestContext::Group(group_id.to_string()),
-                                response: None,
-                                is_virtual: false,
-                            },
-                            None,
-                        ))),
-                    }
-                }
-                Some(protocol_error) => Err(ErrorOrThrottle::Error((
-                    Error::ServerError {
-                        protocol_error,
-                        error_message: Some("join group failed".to_string()),
-                        request: RequestContext::Group(group_id.to_string()),
-                        response: None,
-                        is_virtual: false,
-                    },
-                    None,
-                ))),
-            }
-        })
-        .await
-    }
-
-    pub async fn sync_group(
-        &self,
-        group_id: String,
-        generation_id: i32,
-        member_id: String,
-        group_instance_id: Option<String>,
-        assignments: Vec<Assignment>,
-    ) -> Result<SyncGroupResponse> {
-        info!("sync {member_id}");
-
-        let req = &SyncGroupRequest {
-            group_id,
-            generation_id,
-            member_id,
-            group_instance_id,
-            protocol_type: Some("consumer".into()),
-            protocol_name: Some("roundrobin".into()),
-            assignments,
-            tagged_fields: None,
-        };
-
-        maybe_retry(&self.backoff_config, self, "sync_group", || async move {
-            let coordinator_id = self.get_coordinator(&req.group_id).await?;
-            let broker = self
-                .brokers
-                .connect(coordinator_id)
-                .await
-                .map_err(|err| ErrorOrThrottle::Error((err.into(), None)))?
-                .ok_or(ErrorOrThrottle::Error((
-                    Error::InvalidResponse(format!("Coordinator {} not found", coordinator_id)),
-                    None,
-                )))?;
-
-            let resp = broker
-                .request(req)
-                .await
-                .map_err(|err| {
-                    println!("err: {:?}", err);
-                    err
-                })
-                .map_err(|err| ErrorOrThrottle::Error((err.into(), None)))?;
-
-            maybe_throttle(Some(resp.throttle_time_ms))?;
-
-            match resp.error_code {
-                None => Ok(resp),
-                Some(protocol_error) => Err(ErrorOrThrottle::Error((
-                    Error::ServerError {
-                        protocol_error,
-                        error_message: Some("sync group failed".to_string()),
-                        request: RequestContext::Group(req.group_id.clone()),
-                        response: None,
-                        is_virtual: false,
-                    },
-                    None,
-                ))),
-            }
-        })
-        .await
-    }
-
-    pub async fn get_coordinator(
-        &self,
-        key: &str,
-    ) -> std::result::Result<i32, ErrorOrThrottle<(Error, Option<BrokerCacheGeneration>)>> {
-        let (broker, gen) = self
-            .get()
-            .await
-            .map_err(|err| ErrorOrThrottle::Error((err, None)))?;
-
-        let req = &find_coordinator::FindCoordinatorRequest {
-            key: key.to_string(),
-            key_type: find_coordinator::CoordinatorType::Group,
-            tagged_fields: None,
-        };
-
-        let resp = broker
-            .request(req)
-            .await
-            .map_err(|err| ErrorOrThrottle::Error((err.into(), Some(gen))))?;
-
-        maybe_throttle(Some(resp.throttle_time_ms))?;
-
-        Ok(resp.node_id)
-    }
-
     pub async fn metadata(&self) -> Result<MetadataResponse> {
         let (metadata, _gen) = self
             .brokers
@@ -566,7 +337,7 @@ where
                 // fatal
                 _ => {
                     error!(
-                        e=%error,
+                        err=%error,
                         request_name,
                         "request encountered fatal error",
                     );

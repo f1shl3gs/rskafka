@@ -526,7 +526,7 @@ where
                 }
                 Err(error) => {
                     error!(
-                        e=%error,
+                        err=%error,
                         "metadata request encountered fatal error",
                     );
                     ControlFlow::Break(Err(error.into()))

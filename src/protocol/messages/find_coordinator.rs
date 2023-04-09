@@ -33,12 +33,12 @@ impl CoordinatorType {
 }
 
 #[derive(Debug)]
-pub struct FindCoordinatorRequest {
+pub struct FindCoordinatorRequest<'a> {
     /// The coordinator key.
     ///
     /// STRING < 3
     /// COMPACT_STRING >= 3
-    pub key: String,
+    pub key: &'a str,
 
     /// The coordinator key type. (Group, transaction, etc.)
     pub key_type: CoordinatorType,
@@ -49,10 +49,7 @@ pub struct FindCoordinatorRequest {
     pub tagged_fields: Option<TaggedFields>,
 }
 
-impl<W> WriteVersionedType<W> for FindCoordinatorRequest
-where
-    W: Write,
-{
+impl<W: Write> WriteVersionedType<W> for FindCoordinatorRequest<'_> {
     fn write_versioned(
         &self,
         writer: &mut W,
@@ -80,7 +77,7 @@ where
     }
 }
 
-impl RequestBody for FindCoordinatorRequest {
+impl RequestBody for FindCoordinatorRequest<'_> {
     type ResponseBody = FindCoordinatorResponse;
 
     const API_KEY: ApiKey = ApiKey::FindCoordinator;

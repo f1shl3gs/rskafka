@@ -292,6 +292,15 @@ impl<W: Write> WriteType<W> for String {
     }
 }
 
+impl<W: Write> WriteType<W> for &str {
+    fn write(&self, writer: &mut W) -> Result<(), WriteError> {
+        let len = i16::try_from(self.len()).map_err(WriteError::Overflow)?;
+        len.write(writer)?;
+        writer.write_all(self.as_bytes())?;
+        Ok(())
+    }
+}
+
 // NULLABLE_STRING
 impl<R: Read> ReadType<R> for Option<String> {
     fn read(reader: &mut R) -> Result<Self, ReadError> {
@@ -354,6 +363,15 @@ impl<R: Read> ReadCompactType<R> for String {
 }
 
 impl<W: Write> WriteCompactType<W> for String {
+    fn write_compact(&self, writer: &mut W) -> Result<(), WriteError> {
+        let len = u64::try_from(self.len() + 1).map_err(WriteError::Overflow)?;
+        UnsignedVarint(len).write(writer)?;
+        writer.write_all(self.as_bytes())?;
+        Ok(())
+    }
+}
+
+impl<W: Write> WriteCompactType<W> for &str {
     fn write_compact(&self, writer: &mut W) -> Result<(), WriteError> {
         let len = u64::try_from(self.len() + 1).map_err(WriteError::Overflow)?;
         UnsignedVarint(len).write(writer)?;

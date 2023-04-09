@@ -121,7 +121,7 @@ impl Backoff {
                 ControlFlow::Continue(ErrorOrThrottle::Error(e)) => {
                     let backoff = self.next();
                     info!(
-                        e=%e,
+                        err=%e,
                         request_name,
                         backoff_secs = backoff.as_secs(),
                         "request encountered non-fatal error - backing off",

@@ -384,15 +384,14 @@ where
             String::read(reader)?
         };
         let error = Error::new(i16::read(reader)?);
-        let error_message = (v >= 1)
-            .then(|| {
-                if v >= 5 {
-                    ReadCompactType::read_compact(reader)
-                } else {
-                    ReadType::read(reader)
-                }
-            })
-            .transpose()?;
+        let error_message = if v >= 5 {
+            ReadCompactType::read_compact(reader)?
+        } else if v >= 1 {
+            ReadType::read(reader)?
+        } else {
+            None
+        };
+
         let num_partitions = (v >= 5).then(|| i32::read(reader)).transpose()?;
         let replication_factor = (v >= 5).then(|| i16::read(reader)).transpose()?;
         let configs = (v >= 5)

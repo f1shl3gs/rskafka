@@ -1,36 +1,31 @@
-use std::collections::BTreeMap;
-use std::io::Cursor;
+mod test_helpers;
+
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures_util::{FutureExt, StreamExt};
+use futures_util::StreamExt;
 use rskafka::client::consumer::{StartOffset, StreamConsumerBuilder};
 use rskafka::client::error::{Error, ProtocolError};
-use rskafka::client::partition::{Compression, UnknownTopicHandling};
+use rskafka::client::partition::{Compression, OffsetAt, UnknownTopicHandling};
 use rskafka::client::ClientBuilder;
-use rskafka::protocol::messages::{
-    heartbeat, Assignment, ConsumerGroupMemberAssignment, ConsumerGroupMemberMetadata,
-    PartitionAssignment,
-};
-use rskafka::protocol::traits::{ReadType, WriteType};
+use rskafka::protocol::messages::PartitionAssignment;
 use rskafka::record::{Record, RecordAndOffset};
 use rskafka::topic::Topic;
 use tracing::{error, info, warn};
-use tracing_subscriber::FmtSubscriber;
 
-use crate::test_helpers::start_logging;
+use crate::test_helpers::maybe_start_logging;
 
 #[ignore]
 #[tokio::test]
 async fn produce() {
-    let subscriber = FmtSubscriber::new();
-    tracing::subscriber::set_global_default(subscriber)
-        .map_err(|_err| eprintln!("Unable to set global default subscriber"))
-        .unwrap();
+    maybe_start_logging();
 
-    let bootstrap_brokers = vec!["localhost:9010".to_string()];
-    let client = ClientBuilder::new(bootstrap_brokers).build().await.unwrap();
-    let controller_client = client.controller_client().unwrap();
+    let test_cfg = maybe_skip_kafka_integration!();
+    let client = ClientBuilder::new(test_cfg.bootstrap_brokers)
+        .build()
+        .await
+        .unwrap();
 
     let topic = "test_00";
     if client
@@ -41,6 +36,8 @@ async fn produce() {
         .find(|t| t.name == topic)
         .is_none()
     {
+        let controller_client = client.controller_client().unwrap();
+
         controller_client
             .create_topic(topic, 2, 2, 5_000)
             .await
@@ -72,27 +69,26 @@ async fn produce() {
         .await
         .unwrap();
 
-        info!("produce done");
+        info!("produce done msg {partition}/{i}");
 
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
 }
 
-mod test_helpers;
-
 #[ignore]
-#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn consumer_group() {
-    let subscriber = FmtSubscriber::new();
-    tracing::subscriber::set_global_default(subscriber)
-        .map_err(|_err| eprintln!("Unable to set global default subscriber"))
+    maybe_start_logging();
+
+    let test_cfg = maybe_skip_kafka_integration!();
+    let client = ClientBuilder::new(test_cfg.bootstrap_brokers)
+        .build()
+        .await
         .unwrap();
+    let client = Arc::new(client);
 
     let group = "demo";
-    let bootstrap_brokers = vec!["localhost:9010".to_string()];
-
-    let client = ClientBuilder::new(bootstrap_brokers).build().await.unwrap();
-    let client = Arc::new(client);
+    let start_at = OffsetAt::Earliest;
 
     loop {
         // list all topics
@@ -104,362 +100,244 @@ async fn consumer_group() {
             .filter(|t| t.name.starts_with("test_"))
             .collect::<Vec<_>>();
 
-        // session
-        let names = topics.iter().map(|t| t.name.clone()).collect::<Vec<_>>();
-        let control_client = client.controller_client().unwrap();
-        let join = control_client.join_group(group, names).await.unwrap();
-
-        // prepare distribution plan if we joined as the leader.
-        let mut assignments = None;
-        if join.leader == join.member_id {
-            assignments = Some(
-                balance(&topics, &join.members)
-                    .into_iter()
-                    .map(|(member_id, topics)| {
-                        let assignment = ConsumerGroupMemberAssignment {
-                            version: 0,
-                            topics,
-                            user_data: vec![],
-                        };
-
-                        let mut writer = Vec::new();
-                        assignment
-                            .write(&mut writer)
-                            .expect("write ConsumerGroupMemberAssignment success");
-
-                        Assignment {
-                            member_id,
-                            assignment: writer,
-                            tagged_fields: None,
-                        }
-                    })
-                    .collect::<Vec<_>>(),
-            );
-        }
-
-        let resp = control_client
-            .sync_group(
-                group.to_string(),
-                join.generation_id,
-                join.member_id.clone(),
-                None,
-                assignments.unwrap_or_default(),
-            )
+        let consumer = client
+            .consumer_group(group.to_string(), &topics)
             .await
             .unwrap();
 
-        let (tx, rx) = futures::channel::oneshot::channel::<()>();
-        let rx = rx.shared();
+        let consumer = Arc::new(consumer);
+        let notify = Arc::new(tokio::sync::Notify::new());
+        let mut offsets = Vec::new();
 
-        // retrieve and sort claims
-        if resp.assignment.len() > 0 {
-            let mut reader = Cursor::new(&resp.assignment);
-            let assignment = ConsumerGroupMemberAssignment::read(&mut reader).unwrap();
-            for PartitionAssignment { topic, partitions } in assignment.topics {
-                for partition in partitions {
-                    let cli = client.clone();
-                    let shutdown = rx.clone();
-                    let topic = topic.clone();
+        let start_offsets = consumer.offsets().await.unwrap();
 
-                    // Once shutdown resolved, this task will exit too, therefore we can
-                    // just spawn and forget.
-                    tokio::spawn(async move {
-                        let pc = match cli
-                            .partition_client(&topic, partition, UnknownTopicHandling::Error)
-                            .await
-                        {
-                            Ok(pc) => pc,
-                            Err(err) => {
-                                error!(
-                                    "create partition client({topic}/{partition}) failed, {err}"
-                                );
-                                return;
+        info!("start offsets: {:?}", start_offsets);
+
+        // consume topics
+        for PartitionAssignment { topic, partitions } in consumer.assignment() {
+            let starts = start_offsets.iter().find(|t| &t.name == topic);
+            for partition in partitions {
+                let topic = topic.to_string();
+                let partition = *partition;
+                let shutdown = notify.clone();
+                let cli = client.clone();
+                let current_offset = Arc::new(AtomicI64::new(0));
+                offsets.push(current_offset.clone());
+
+                let start = match starts {
+                    Some(topic) => topic
+                        .partitions
+                        .iter()
+                        .find(|p| p.partition_index == partition)
+                        .map(|p| StartOffset::At(p.committed_offset))
+                        .unwrap_or_else(|| StartOffset::Latest),
+                    None => StartOffset::Latest,
+                };
+
+                // Once shutdown resolved, this task will exit too, therefore we can
+                // just spawn and forget.
+                tokio::spawn(async move {
+                    let pc = match cli
+                        .partition_client(&topic, partition, UnknownTopicHandling::Error)
+                        .await
+                    {
+                        Ok(pc) => pc,
+                        Err(err) => {
+                            error!("create partition client({topic}/{partition}) failed, {err}");
+                            return;
+                        }
+                    };
+
+                    let start = match pc.get_offset(start_at).await {
+                        Ok(current) => match start {
+                            StartOffset::At(committed) => {
+                                if committed < current {
+                                    StartOffset::At(current)
+                                } else {
+                                    start
+                                }
                             }
-                        };
+                            _ => start,
+                        },
+                        Err(err) => {
+                            error!("get offset failed, err: {}", err);
+                            return;
+                        }
+                    };
 
-                        info!("start consumer {}/{}", pc.topic(), pc.partition());
-                        let mut consumer =
-                            StreamConsumerBuilder::new(Arc::new(pc), StartOffset::Latest)
-                                .build()
-                                .take_until(shutdown);
+                    info!(
+                        "start consumer {}/{} at {:?}",
+                        pc.topic(),
+                        pc.partition(),
+                        start
+                    );
 
-                        while let Some(result) = consumer.next().await {
-                            match result {
-                                Ok((RecordAndOffset { record, offset }, _last_high_watermark)) => {
-                                    let value = record.value.unwrap();
-                                    let msg = String::from_utf8_lossy(&value);
+                    let mut consumer = StreamConsumerBuilder::new(Arc::new(pc), start).build();
 
-                                    info!("{topic} {partition} {offset} {msg}");
+                    loop {
+                        tokio::select! {
+                            result = consumer.next() => {
+                                if let Some(record) = result {
+                                    match record {
+                                        Ok((RecordAndOffset { record, offset }, _last_high_watermark)) => {
+                                            let value = record.value.unwrap();
+                                            let msg = String::from_utf8_lossy(&value);
+
+                                            info!("consume -- {topic} {partition} {offset} {msg}");
+
+                                            // update offset here
+                                            current_offset.store(offset, Ordering::Relaxed);
+                                        }
+                                        Err(err) => {
+                                            error!("consumer failed, {topic} {partition} {err}")
+                                        }
+                                    }
+                                } else {
+                                    // closed
+                                    break;
                                 }
-                                Err(err) => {
-                                    error!("consumer failed, {topic} {partition} {err}")
-                                }
+                            },
+
+                            _ = shutdown.notified() => {
+                                break
                             }
                         }
-                    });
-                }
+                    }
+
+                    info!("consumer {}/{} exit", topic, partition);
+                });
             }
         }
 
-        // heartbeat loop
-        let mut shutdown = rx.clone();
-        let req = heartbeat::HeartbeatRequest {
-            group_id: group.to_string(),
-            generation_id: join.generation_id,
-            member_id: join.member_id,
-            group_instance_id: None,
-        };
+        // heartbeat
+        let shutdown = notify.clone();
+        let hc = consumer.clone();
         tokio::spawn(async move {
             let mut ticker = tokio::time::interval(Duration::from_secs(3));
+            let mut retries = 3;
 
-            info!("start heartbeat loop");
             loop {
                 tokio::select! {
                     _ = ticker.tick() => {},
-                    _ = &mut shutdown => return
+                    _ = shutdown.notified() => return
                 }
 
-                match control_client.heartbeat(&req).await {
-                    Ok(_resp) => {
-                        info!("heartbeat success");
-                    }
-                    Err(err) => match err {
-                        Error::ServerError { protocol_error, .. } => {
-                            match protocol_error {
-                                ProtocolError::RebalanceInProgress => {
-                                    // partition check loop might call send too.
-                                    let _ = tx.send(());
-                                    return;
-                                }
-
-                                ProtocolError::UnknownMemberId
-                                | ProtocolError::IllegalGeneration
-                                | ProtocolError::FencedInstanceId => {
-                                    warn!("heartbeat down");
-                                    return;
-                                }
-
-                                err => warn!("unexpected protocol error {err}"),
+                if let Err(err) = hc.heartbeat().await {
+                    match err {
+                        Error::ServerError { protocol_error, .. }
+                            if protocol_error == ProtocolError::RebalanceInProgress =>
+                        {
+                            info!("rebalancing triggered");
+                            break;
+                        }
+                        _ => {
+                            warn!("unexpected error when heartbeat, {}", err);
+                            retries -= 1;
+                            if retries <= 0 {
+                                break;
                             }
                         }
-                        err => {
-                            warn!("heartbeat failed, {err}")
+                    }
+                } else {
+                    retries = 3;
+                    info!("heartbeat success");
+                }
+            }
+
+            // topic check loop might call this too, so send might failed,
+            // but it's ok;
+            shutdown.notify_waiters();
+
+            info!("heartbeat loop exit");
+        });
+
+        // commit loop
+        let shutdown = notify.clone();
+        let cc = consumer.clone();
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(Duration::from_secs(5));
+
+            loop {
+                tokio::select! {
+                    _ = shutdown.notified() => break,
+                    _ = ticker.tick() => {}
+                }
+
+                let mut i = 0;
+                for PartitionAssignment { topic, partitions } in cc.assignment() {
+                    for partition in partitions {
+                        let offset = offsets[i].load(Ordering::Relaxed);
+                        i += 1;
+
+                        if offset == 0 {
+                            // consume nothing till now
+                            continue;
                         }
-                    },
+
+                        let topics = cc.commit(topic, *partition, offset).await.unwrap();
+                        for topic in topics {
+                            for p in topic.partitions {
+                                info!(
+                                    "commit offset of {}/{}/{} err:{:?}",
+                                    topic.name, p.partition_index, offset, p.error_code
+                                );
+                            }
+                        }
+                    }
                 }
             }
         });
 
-        // check partition number
-        // loop {}
-
-        tokio::time::sleep(Duration::from_secs(600)).await;
-    }
-}
-
-// round robin
-// member_id -> topic -> partitions
-fn balance(
-    topics: &[Topic],
-    members: &[rskafka::protocol::messages::join_group::Member],
-) -> BTreeMap<String, Vec<PartitionAssignment>> {
-    let mut plan = BTreeMap::new();
-    let mut members = members
-        .iter()
-        .map(|m| {
-            let mut c = Cursor::new(&m.metadata);
-            let meta = ConsumerGroupMemberMetadata::read(&mut c).unwrap();
-
-            (m.member_id.clone(), meta)
-        })
-        .collect::<Vec<_>>();
-    members.sort_by(|(a, _), (b, _)| a.cmp(b));
-
-    let mut i = 0;
-    let n = members.len();
-    for topic in topics {
-        for (partition, _) in &topic.partitions {
-            let member = loop {
-                let (member, metadata) = &members[i % n];
-                i += 1;
-
-                if metadata.topics.contains(&topic.name) {
-                    break member;
-                }
-            };
-
-            let tp = match plan.get_mut(member) {
-                Some(tp) => tp,
-                None => {
-                    plan.entry(member.clone()).or_insert_with(|| {
-                        vec![PartitionAssignment {
-                            topic: topic.name.clone(),
-                            partitions: vec![*partition],
-                        }]
-                    });
-
-                    continue;
-                }
-            };
-
-            match tp.iter_mut().find(|a| a.topic == topic.name) {
-                Some(assignment) => {
-                    assignment.partitions.push(*partition);
-                }
-                None => tp.push(PartitionAssignment {
-                    topic: topic.name.clone(),
-                    partitions: vec![*partition],
-                }),
+        // topic check loop
+        let mut ticker = tokio::time::interval(Duration::from_secs(60 * 10));
+        loop {
+            tokio::select! {
+                _ = notify.notified() => break,
+                _ = ticker.tick() => {}
             }
-        }
-    }
 
-    plan
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rskafka::protocol::traits::WriteType;
-    use rskafka::topic::Partition;
-
-    #[test]
-    fn round_robin() {
-        fn new_topic(name: &str, partitions: i32) -> Topic {
-            let partitions = (0..partitions)
+            let mut new_topics = client
+                .list_topics()
+                .await
+                .unwrap()
                 .into_iter()
-                .map(|p| {
-                    (
-                        p,
-                        Partition {
-                            leader_id: 0,
-                            replica_nodes: vec![],
-                            isr_nodes: vec![],
-                        },
-                    )
-                })
-                .collect::<BTreeMap<_, _>>();
+                .filter(|t| t.name.starts_with("test_"))
+                .collect::<Vec<_>>();
+            new_topics.sort_by(|a, b| a.name.cmp(&b.name));
 
-            Topic {
-                name: name.to_string(),
-                partitions,
+            if !compare_topics(&topics, &new_topics) {
+                notify.notify_waiters();
+                break;
             }
         }
 
-        for (mut members, topics, want) in [
-            (
-                vec![
-                    ("m1", vec!["t1", "t2", "t3"]),
-                    ("m2", vec!["t1", "t2", "t3"]),
-                ],
-                vec![("t1", 1), ("t2", 1), ("t3", 1)],
-                vec![
-                    ("m1", vec![("t1", vec![0]), ("t3", vec![0])]),
-                    ("m2", vec![("t2", vec![0])]),
-                ],
-            ),
-            (
-                vec![
-                    ("m1", vec!["t1", "t2", "t3"]),
-                    ("m2", vec!["t1", "t2", "t3"]),
-                ],
-                vec![("t1", 1), ("t2", 2), ("t3", 4)],
-                vec![
-                    (
-                        "m1",
-                        vec![("t1", vec![0]), ("t2", vec![1]), ("t3", vec![1, 3])],
-                    ),
-                    ("m2", vec![("t2", vec![0]), ("t3", vec![0, 2])]),
-                ],
-            ),
-            (
-                vec![("m1", vec!["t1"]), ("m2", vec!["t1"])],
-                vec![("t1", 1)],
-                vec![("m1", vec![("t1", vec![0])])],
-            ),
-            (
-                vec![("m1", vec!["t1", "t2", "t3"])],
-                vec![("t1", 1), ("t2", 1), ("t3", 3)],
-                vec![(
-                    "m1",
-                    vec![("t1", vec![0]), ("t2", vec![0]), ("t3", vec![0, 1, 2])],
-                )],
-            ),
-            (
-                vec![("m1", vec!["t1", "t2", "t3"]), ("m2", vec!["t1"])],
-                vec![("t1", 1), ("t2", 1), ("t3", 1)],
-                vec![(
-                    "m1",
-                    vec![("t1", vec![0]), ("t2", vec![0]), ("t3", vec![0])],
-                )],
-            ),
-            (
-                vec![("m1", vec!["t1", "t2", "t3"]), ("m2", vec!["t1", "t3"])],
-                vec![("t1", 1), ("t2", 1), ("t3", 1)],
-                vec![
-                    ("m1", vec![("t1", vec![0]), ("t2", vec![0])]),
-                    ("m2", vec![("t3", vec![0])]),
-                ],
-            ),
-            (
-                vec![
-                    ("m", vec!["t1", "t2", "tt2"]),
-                    ("m2", vec!["t1", "t2", "tt2"]),
-                    ("m3", vec!["t1", "t2", "tt2"]),
-                ],
-                vec![("t1", 1), ("t2", 1), ("tt2", 1)],
-                vec![
-                    ("m", vec![("t1", vec![0])]),
-                    ("m2", vec![("t2", vec![0])]),
-                    ("m3", vec![("tt2", vec![0])]),
-                ],
-            ),
-        ] {
-            members.sort();
-            let members = members
-                .iter()
-                .map(|(id, topics)| {
-                    let meta = ConsumerGroupMemberMetadata {
-                        version: 0,
-                        topics: topics.iter().map(|t| t.to_string()).collect(),
-                        user_data: vec![],
-                        owned_partitions: vec![],
-                    };
+        // leave the group
+        // consumer.leave().await.unwrap();
 
-                    let mut metadata = Vec::new();
-                    meta.write(&mut metadata).unwrap();
+        // don't wait the underground task
+    }
+}
 
-                    rskafka::protocol::messages::join_group::Member {
-                        member_id: id.to_string(),
-                        group_instance_id: None,
-                        metadata,
-                    }
-                })
-                .collect::<Vec<_>>();
+// compare_topics compare topic count, name and partitions
+//
+// eq_by is not stable yet.
+fn compare_topics(old: &[Topic], new: &[Topic]) -> bool {
+    if old.len() != new.len() {
+        return false;
+    }
 
-            let topics = topics
-                .iter()
-                .map(|(name, total)| new_topic(name, *total))
-                .collect::<Vec<_>>();
+    for i in 0..old.len() {
+        let o = &old[i];
+        let n = &new[i];
 
-            let want = want
-                .into_iter()
-                .map(|(name, assignments)| {
-                    let assignments = assignments
-                        .into_iter()
-                        .map(|(topic, partitions)| PartitionAssignment {
-                            topic: topic.to_string(),
-                            partitions,
-                        })
-                        .collect::<Vec<_>>();
+        if o.name != n.name {
+            return false;
+        }
 
-                    (name.to_string(), assignments)
-                })
-                .collect::<BTreeMap<_, _>>();
-
-            let got = balance(&topics, &members);
-
-            assert_eq!(got, want)
+        if o.partitions.len() != n.partitions.len() {
+            return false;
         }
     }
+
+    return true;
 }

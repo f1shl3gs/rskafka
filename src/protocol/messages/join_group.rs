@@ -1,11 +1,11 @@
-use std::io::{Read, Write};
+use std::io::{Cursor, Read, Write};
 
 use crate::protocol::api_key::ApiKey;
 use crate::protocol::api_version::{ApiVersion, ApiVersionRange};
 use crate::protocol::error::Error;
 use crate::protocol::messages::{
-    read_versioned_array, write_versioned_array, ReadVersionedError, ReadVersionedType,
-    RequestBody, WriteVersionedError, WriteVersionedType,
+    read_versioned_array, write_versioned_array, ConsumerGroupMemberMetadata, ReadVersionedError,
+    ReadVersionedType, RequestBody, WriteVersionedError, WriteVersionedType,
 };
 use crate::protocol::traits::{ReadType, WriteType};
 
@@ -119,7 +119,7 @@ pub struct Member {
     pub group_instance_id: Option<String>,
 
     /// The group member metadata.
-    pub metadata: Vec<u8>,
+    pub metadata: ConsumerGroupMemberMetadata,
 }
 
 impl<R> ReadVersionedType<R> for Member
@@ -132,7 +132,10 @@ where
 
         let member_id = String::read(reader)?;
         let group_instance_id = ReadType::read(reader)?;
-        let metadata = ReadType::read(reader)?;
+
+        let buf = Vec::<u8>::read(reader)?;
+        let mut meta_buf = Cursor::new(buf);
+        let metadata = ReadType::read(&mut meta_buf)?;
 
         Ok(Self {
             member_id,

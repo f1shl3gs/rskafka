@@ -1,4 +1,4 @@
-use std::io::{Read, Write};
+use std::io::{Cursor, Read, Write};
 
 use crate::protocol::api_key::ApiKey;
 use crate::protocol::api_version::{ApiVersion, ApiVersionRange};
@@ -97,6 +97,7 @@ impl<W: Write> WriteType<W> for PartitionAssignment {
 
 // ConsumerGroupMemberAssignment holds the member assignment for a consume group
 // https://github.com/apache/kafka/blob/trunk/clients/src/main/resources/common/message/ConsumerProtocolAssignment.json
+#[derive(Default)]
 #[cfg_attr(test, derive(Debug, Eq, PartialEq))]
 pub struct ConsumerGroupMemberAssignment {
     pub version: i16,
@@ -324,7 +325,7 @@ pub struct SyncGroupResponse {
     ///
     /// Bytes <= 3
     /// CompactBytes >= 4
-    pub assignment: Vec<u8>,
+    pub assignment: ConsumerGroupMemberAssignment,
 
     /// The tagged fields.
     ///
@@ -356,10 +357,17 @@ where
             None
         };
 
-        let assignment = if v < 4 {
-            ReadType::read(reader)?
+        // assignment
+        let buf = if v < 4 {
+            Vec::<u8>::read(reader)?
         } else {
-            ReadCompactType::read_compact(reader)?
+            Vec::<u8>::read_compact(reader)?
+        };
+        let assignment = if buf.is_empty() {
+            Default::default()
+        } else {
+            let mut assignment_reader = Cursor::new(buf);
+            ConsumerGroupMemberAssignment::read(&mut assignment_reader)?
         };
 
         let tagged_fields = (v >= 4).then(|| TaggedFields::read(reader)).transpose()?;

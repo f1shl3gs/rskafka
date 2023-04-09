@@ -42,11 +42,12 @@ pub mod heartbeat;
 pub mod join_group;
 pub use join_group::*;
 pub mod find_coordinator;
-mod leave_group;
+pub mod leave_group;
 pub mod list_groups;
 mod sync_group;
 pub use sync_group::*;
 pub mod offset_commit;
+pub mod offset_fetch;
 #[cfg(test)]
 mod test_utils;
 

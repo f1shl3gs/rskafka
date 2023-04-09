@@ -131,8 +131,11 @@ impl<W: Write> WriteVersionedType<W> for OffsetCommitRequest {
 
 impl RequestBody for OffsetCommitRequest {
     type ResponseBody = OffsetCommitResponse;
+
     const API_KEY: ApiKey = ApiKey::OffsetCommit;
+
     const API_VERSION_RANGE: ApiVersionRange = ApiVersionRange::new(1, 7);
+
     const FIRST_TAGGED_FIELD_IN_REQUEST_VERSION: ApiVersion = ApiVersion(8);
 }
 
