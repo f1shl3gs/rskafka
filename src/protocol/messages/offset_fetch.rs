@@ -208,10 +208,7 @@ mod tests {
         }
 
         // all topics
-        let all_topics = vec![
-            0x00, 0x04, b'b', b'l', b'a', b'h',
-            0xff, 0xff, 0xff, 0xff,
-        ];
+        let all_topics = vec![0x00, 0x04, b'b', b'l', b'a', b'h', 0xff, 0xff, 0xff, 0xff];
         for i in 2..5 {
             let req = OffsetFetchRequest {
                 group_id: "blah".to_string(),
