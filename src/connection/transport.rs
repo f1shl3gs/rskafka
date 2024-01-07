@@ -1,8 +1,9 @@
-use pin_project_lite::pin_project;
-use std::pin::Pin;
 #[cfg(feature = "transport-tls")]
 use std::sync::Arc;
+use std::pin::Pin;
 use std::task::{Context, Poll};
+
+use pin_project_lite::pin_project;
 use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
@@ -30,7 +31,7 @@ pub enum Error {
 
     #[cfg(feature = "transport-tls")]
     #[error("Invalid Hostname: {0}")]
-    BadHostname(#[from] rustls::client::InvalidDnsNameError),
+    BadHostname(#[from] rustls::pki_types::InvalidDnsNameError),
 
     #[cfg(feature = "transport-socks5")]
     #[error("Cannot establish SOCKS5 connection: {0}")]
