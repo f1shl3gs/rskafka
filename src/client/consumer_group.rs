@@ -21,7 +21,7 @@ use crate::protocol::messages::offset_commit::{
 use crate::protocol::messages::offset_fetch::{OffsetFetchRequest, OffsetFetchTopicResult};
 use crate::protocol::messages::{
     find_coordinator, heartbeat, join_group, leave_group, Assignment,
-    ConsumerGroupMemberAssignment, ConsumerGroupMemberMetadata, JoinGroupRequest,
+    ConsumerGroupMemberAssignment, ConsumerGroupMemberMetadata,
     PartitionAssignment, SyncGroupRequest,
 };
 use crate::protocol::traits::WriteType;
@@ -100,7 +100,7 @@ impl ConsumerGroup {
         let mut metadata = Vec::new();
         meta.write(&mut metadata).expect("encode success");
 
-        let mut req = JoinGroupRequest {
+        let mut req = join_group::JoinGroupRequest {
             group_id: group.clone(),
             session_timeout_ms: DEFAULT_SESSION_TIMEOUT_MS,
             rebalance_timeout_ms: DEFAULT_REBALANCE_TIMEOUT_MS,

@@ -1,7 +1,8 @@
-use async_trait::async_trait;
-use rand::prelude::*;
 use std::ops::ControlFlow;
 use std::sync::Arc;
+
+use async_trait::async_trait;
+use rand::prelude::*;
 use thiserror::Error;
 use tokio::{io::BufStream, sync::Mutex};
 use tracing::{debug, error, info, warn};

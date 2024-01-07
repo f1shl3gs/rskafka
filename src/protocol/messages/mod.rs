@@ -40,7 +40,6 @@ mod delete_groups;
 mod describe_groups;
 pub mod heartbeat;
 pub mod join_group;
-pub use join_group::*;
 pub mod find_coordinator;
 pub mod leave_group;
 pub mod list_groups;
