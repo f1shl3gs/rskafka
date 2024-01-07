@@ -53,7 +53,7 @@ proptest-derive = { version = "0.4", default-features = false }
 rustls-pemfile = { version = "2.0", default-features = false }
 rdkafka = { version = "0.36", default-features = false, features = ["libz", "tokio", "zstd"] }
 tokio = { version = "1.35", default-features = false, features = ["macros", "rt-multi-thread"] }
-tracing-log = { version = "0.2", default-features = false }
+tracing-log = { version = "0.2", default-features = false, features = ["log-tracer", "std"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt", "tracing-log"] }
 uuid = { version = "1.6", default-features = false, features = ["v4"] }
 
@@ -63,6 +63,7 @@ default = [
     "compression-lz4",
     "compression-snappy",
     "compression-zstd",
+    "transport-tls"
 ]
 
 full = [

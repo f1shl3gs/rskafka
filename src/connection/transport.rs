@@ -1,6 +1,6 @@
+use std::pin::Pin;
 #[cfg(feature = "transport-tls")]
 use std::sync::Arc;
-use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use pin_project_lite::pin_project;
@@ -165,11 +165,13 @@ impl Transport {
                 let host = broker
                     .split(':')
                     .next()
-                    .ok_or_else(|| Error::InvalidHostPort(broker.to_owned()))?;
+                    .ok_or_else(|| Error::InvalidHostPort(broker.to_owned()))?
+                    .to_owned();
                 let server_name = rustls::pki_types::ServerName::try_from(host)?;
+                let tls_stream = TlsConnector::from(config)
+                    .connect(server_name, tcp_stream)
+                    .await?;
 
-                let connector = TlsConnector::from(config);
-                let tls_stream = connector.connect(server_name, tcp_stream).await?;
                 Ok(Self::Tls {
                     inner: Box::new(tls_stream),
                 })

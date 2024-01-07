@@ -21,8 +21,8 @@ use crate::protocol::messages::offset_commit::{
 use crate::protocol::messages::offset_fetch::{OffsetFetchRequest, OffsetFetchTopicResult};
 use crate::protocol::messages::{
     find_coordinator, heartbeat, join_group, leave_group, Assignment,
-    ConsumerGroupMemberAssignment, ConsumerGroupMemberMetadata,
-    PartitionAssignment, SyncGroupRequest,
+    ConsumerGroupMemberAssignment, ConsumerGroupMemberMetadata, PartitionAssignment,
+    SyncGroupRequest,
 };
 use crate::protocol::traits::WriteType;
 use crate::throttle::maybe_throttle;
