@@ -166,7 +166,7 @@ impl Transport {
                     .split(':')
                     .next()
                     .ok_or_else(|| Error::InvalidHostPort(broker.to_owned()))?;
-                let server_name = rustls::ServerName::try_from(host)?;
+                let server_name = rustls::pki_types::ServerName::try_from(host)?;
 
                 let connector = TlsConnector::from(config);
                 let tls_stream = connector.connect(server_name, tcp_stream).await?;
