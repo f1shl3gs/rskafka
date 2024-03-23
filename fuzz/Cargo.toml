@@ -12,7 +12,7 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 pin-project-lite = "0.2"
 rskafka = { path = "..", features = ["unstable-fuzzing"] }
-tokio = { version = "1.35", default-features = false, features = ["io-util", "rt"] }
+tokio = { version = "1.36", default-features = false, features = ["io-util", "rt"] }
 
 [[bin]]
 name = "protocol_reader"
