@@ -1,8 +1,9 @@
-use async_trait::async_trait;
-use rand::prelude::*;
 use std::fmt::Display;
 use std::ops::ControlFlow;
 use std::sync::Arc;
+
+use async_trait::async_trait;
+use rand::prelude::*;
 use thiserror::Error;
 use tokio::{io::BufStream, sync::Mutex};
 use tracing::{debug, error, info, warn};
@@ -13,7 +14,6 @@ use crate::connection::topology::{Broker, BrokerTopology};
 use crate::connection::transport::Transport;
 use crate::messenger::{Messenger, RequestError};
 use crate::protocol::messages::{MetadataRequest, MetadataRequestTopic, MetadataResponse};
-use crate::protocol::primitives::String_;
 use crate::throttle::maybe_throttle;
 use crate::{
     backoff::{Backoff, BackoffConfig, BackoffError},
@@ -28,7 +28,7 @@ mod transport;
 
 /// A connection to a broker
 pub type BrokerConnection = Arc<MessengerTransport>;
-pub type MessengerTransport = Messenger<BufStream<transport::Transport>>;
+pub type MessengerTransport = Messenger<BufStream<Transport>>;
 
 #[derive(Debug, Error)]
 #[non_exhaustive]
@@ -103,7 +103,7 @@ pub enum MetadataLookupMode<B = BrokerConnection> {
     CachedArbitrary,
 }
 
-impl<B> std::fmt::Display for MetadataLookupMode<B> {
+impl<B> Display for MetadataLookupMode<B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ArbitraryBroker => write!(f, "ArbitraryBroker"),
@@ -294,7 +294,7 @@ impl BrokerConnector {
         let request = MetadataRequest {
             topics: topics.map(|t| {
                 t.into_iter()
-                    .map(|x| MetadataRequestTopic { name: String_(x) })
+                    .map(|name| MetadataRequestTopic { name })
                     .collect()
             }),
             allow_auto_topic_creation: None,
@@ -342,7 +342,7 @@ impl BrokerConnector {
     }
 
     /// Either the topology or the bootstrap brokers to be used as a connection
-    fn brokers(&self) -> Vec<BrokerRepresentation> {
+    pub(self) fn brokers(&self) -> Vec<BrokerRepresentation> {
         if self.topology.is_empty() {
             self.bootstrap_brokers
                 .iter()

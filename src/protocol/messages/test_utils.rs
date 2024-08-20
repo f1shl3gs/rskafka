@@ -10,8 +10,8 @@ macro_rules! test_roundtrip_versioned {
                 #[allow(unused_imports)]
                 use std::io::Cursor;
 
-                for v in ($min.0.0)..=($max.0.0) {
-                    let v = ApiVersion(Int16(v));
+                for v in ($min.0)..=($max.0) {
+                    let v = ApiVersion(v);
 
                     let mut buf = Cursor::new(Vec::<u8>::new());
                     match orig.write_versioned(&mut buf, v) {

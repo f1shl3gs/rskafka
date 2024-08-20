@@ -5,7 +5,7 @@ use crate::protocol::{
     api_version::{ApiVersion, ApiVersionRange},
     error::Error as ApiError,
     messages::{read_versioned_array, write_versioned_array, IsolationLevel},
-    primitives::{Int16, Int32, Int64, Int8, Records, String_},
+    primitives::Records,
     traits::{ReadType, WriteType},
 };
 
@@ -17,15 +17,15 @@ use super::{
 #[allow(missing_copy_implementations)]
 pub struct FetchRequestPartition {
     /// The partition index.
-    pub partition: Int32,
+    pub partition: i32,
 
     /// The message offset.
-    pub fetch_offset: Int64,
+    pub fetch_offset: i64,
 
     /// The maximum bytes to fetch from this partition.
     ///
     /// See KIP-74 for cases where this limit may not be honored.
-    pub partition_max_bytes: Int32,
+    pub partition_max_bytes: i32,
 }
 
 impl<W> WriteVersionedType<W> for FetchRequestPartition
@@ -37,7 +37,7 @@ where
         writer: &mut W,
         version: ApiVersion,
     ) -> Result<(), WriteVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 4);
 
         self.partition.write(writer)?;
@@ -51,7 +51,7 @@ where
 #[derive(Debug)]
 pub struct FetchRequestTopic {
     /// The name of the topic to fetch.
-    pub topic: String_,
+    pub topic: String,
 
     /// The partitions to fetch.
     pub partitions: Vec<FetchRequestPartition>,
@@ -66,7 +66,7 @@ where
         writer: &mut W,
         version: ApiVersion,
     ) -> Result<(), WriteVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 4);
 
         self.topic.write(writer)?;
@@ -79,20 +79,20 @@ where
 #[derive(Debug)]
 pub struct FetchRequest {
     /// The broker ID of the follower, of -1 if this request is from a consumer.
-    pub replica_id: Int32,
+    pub replica_id: i32,
 
     /// The maximum time in milliseconds to wait for the response.
-    pub max_wait_ms: Int32,
+    pub max_wait_ms: i32,
 
     /// The minimum bytes to accumulate in the response.
-    pub min_bytes: Int32,
+    pub min_bytes: i32,
 
     /// The maximum bytes to fetch. See KIP-74 for cases where this limit may not be honored.
     ///
     /// Defaults to "no limit / max".
     ///
     /// Added in version 3.
-    pub max_bytes: Option<Int32>,
+    pub max_bytes: Option<i32>,
 
     /// This setting controls the visibility of transactional records.
     ///
@@ -122,7 +122,7 @@ where
         writer: &mut W,
         version: ApiVersion,
     ) -> Result<(), WriteVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 4);
 
         self.replica_id.write(writer)?;
@@ -131,12 +131,12 @@ where
 
         if v >= 3 {
             // defaults to "no limit / max".
-            self.max_bytes.unwrap_or(Int32(i32::MAX)).write(writer)?;
+            self.max_bytes.unwrap_or(i32::MAX).write(writer)?;
         }
 
         if v >= 4 {
             // The default is `READ_UNCOMMITTED`.
-            let level: Int8 = self.isolation_level.unwrap_or_default().into();
+            let level: i8 = self.isolation_level.unwrap_or_default().into();
             level.write(writer)?;
         }
 
@@ -157,20 +157,20 @@ impl RequestBody for FetchRequest {
     /// was introduced ([KIP-98]).
     ///
     /// [KIP-98]: https://cwiki.apache.org/confluence/display/KAFKA/KIP-98+-+Exactly+Once+Delivery+and+Transactional+Messaging
-    const API_VERSION_RANGE: ApiVersionRange =
-        ApiVersionRange::new(ApiVersion(Int16(4)), ApiVersion(Int16(4)));
+    const API_VERSION_RANGE: ApiVersionRange = ApiVersionRange::new(4, 4);
 
-    const FIRST_TAGGED_FIELD_IN_REQUEST_VERSION: ApiVersion = ApiVersion(Int16(12));
+    const FIRST_TAGGED_FIELD_IN_REQUEST_VERSION: ApiVersion = ApiVersion(12);
 }
 
 #[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
 #[allow(missing_copy_implementations)]
 pub struct FetchResponseAbortedTransaction {
     /// The producer id associated with the aborted transaction.
-    pub producer_id: Int64,
+    pub producer_id: i64,
 
     /// The first offset in the aborted transaction.
-    pub first_offset: Int64,
+    pub first_offset: i64,
 }
 
 impl<R> ReadVersionedType<R> for FetchResponseAbortedTransaction
@@ -178,26 +178,27 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(4 <= v && v <= 4);
 
         Ok(Self {
-            producer_id: Int64::read(reader)?,
-            first_offset: Int64::read(reader)?,
+            producer_id: i64::read(reader)?,
+            first_offset: i64::read(reader)?,
         })
     }
 }
 
 #[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct FetchResponsePartition {
     /// The partition index.
-    pub partition_index: Int32,
+    pub partition_index: i32,
 
     /// The error code, or 0 if there was no fetch error.
     pub error_code: Option<ApiError>,
 
     /// The current high water mark.
-    pub high_watermark: Int64,
+    pub high_watermark: i64,
 
     /// The last stable offset (or LSO) of the partition.
     ///
@@ -205,7 +206,7 @@ pub struct FetchResponsePartition {
     /// (`ABORTED` or `COMMITTED`).
     ///
     /// Added in version 4.
-    pub last_stable_offset: Option<Int64>,
+    pub last_stable_offset: Option<i64>,
 
     /// The aborted transactions.
     ///
@@ -221,14 +222,14 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 4);
 
         Ok(Self {
-            partition_index: Int32::read(reader)?,
-            error_code: ApiError::new(Int16::read(reader)?.0),
-            high_watermark: Int64::read(reader)?,
-            last_stable_offset: (v >= 4).then(|| Int64::read(reader)).transpose()?,
+            partition_index: i32::read(reader)?,
+            error_code: ApiError::new(i16::read(reader)?),
+            high_watermark: i64::read(reader)?,
+            last_stable_offset: (v >= 4).then(|| i64::read(reader)).transpose()?,
             aborted_transactions: (v >= 4)
                 .then(|| read_versioned_array(reader, version))
                 .transpose()?
@@ -240,9 +241,10 @@ where
 }
 
 #[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct FetchResponseTopic {
     /// The topic name.
-    pub topic: String_,
+    pub topic: String,
 
     /// The topic partitions.
     pub partitions: Vec<FetchResponsePartition>,
@@ -253,22 +255,23 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 4);
 
         Ok(Self {
-            topic: String_::read(reader)?,
+            topic: String::read(reader)?,
             partitions: read_versioned_array(reader, version)?.unwrap_or_default(),
         })
     }
 }
 
 #[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct FetchResponse {
     /// The duration in milliseconds for which the request was throttled due to a quota violation, or zero if the request did not violate any quota.
     ///
     /// Added in version 1.
-    pub throttle_time_ms: Option<Int32>,
+    pub throttle_time_ms: Option<i32>,
 
     /// The response topics.
     pub responses: Vec<FetchResponseTopic>,
@@ -279,12 +282,119 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 4);
 
         Ok(Self {
-            throttle_time_ms: (v >= 1).then(|| Int32::read(reader)).transpose()?,
+            throttle_time_ms: (v >= 1).then(|| i32::read(reader)).transpose()?,
             responses: read_versioned_array(reader, version)?.unwrap_or_default(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::record::{
+        ControlBatchOrRecords, ControlBatchRecord, RecordBatch, RecordBatchCompression,
+        RecordBatchTimestampType,
+    };
+    use std::io::Cursor;
+
+    #[test]
+    fn request() {
+        for (name, version, req, want) in [(
+            "one block",
+            4,
+            FetchRequest {
+                replica_id: -1,
+                max_wait_ms: 0,
+                min_bytes: 0,
+                max_bytes: Some(0xff),
+                isolation_level: Some(IsolationLevel::ReadCommitted),
+                topics: vec![FetchRequestTopic {
+                    topic: "topic".to_string(),
+                    partitions: vec![FetchRequestPartition {
+                        partition: 0x12,
+                        fetch_offset: 0x34,
+                        partition_max_bytes: 0x56,
+                    }],
+                }],
+            },
+            [
+                0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0xFF, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x05, b't', b'o', b'p', b'i', b'c',
+                0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x34, 0x00, 0x00, 0x00, 0x56,
+            ]
+            .as_ref(),
+        )] {
+            let mut cursor = Cursor::new([0u8; 128]);
+            req.write_versioned(&mut cursor, ApiVersion(version))
+                .unwrap();
+            let len = cursor.position() as usize;
+            let got = &cursor.get_ref()[..len];
+            assert_eq!(got, want, "{name}/{version}");
+        }
+    }
+
+    // TODO: fix this test
+    #[ignore]
+    #[test]
+    fn response() {
+        for (name, version, want, data) in [(
+            "one message",
+            4,
+            FetchResponse {
+                throttle_time_ms: None,
+                responses: vec![FetchResponseTopic {
+                    topic: "topic".to_string(),
+                    partitions: vec![FetchResponsePartition {
+                        partition_index: 5,
+                        error_code: None,
+                        high_watermark: 0x10101010,
+                        last_stable_offset: None,
+                        aborted_transactions: vec![],
+                        records: Records(vec![RecordBatch {
+                            base_offset: 0,
+                            partition_leader_epoch: 0,
+                            last_offset_delta: 0,
+                            first_timestamp: 0,
+                            max_timestamp: 0,
+                            producer_id: 0,
+                            producer_epoch: 0,
+                            base_sequence: 0,
+                            records: ControlBatchOrRecords::ControlBatch(
+                                ControlBatchRecord::Commit,
+                            ),
+                            compression: RecordBatchCompression::NoCompression,
+                            is_transactional: false,
+                            timestamp_type: RecordBatchTimestampType::CreateTime,
+                        }]),
+                    }],
+                }],
+            },
+            [
+                0x00, 0x00, 0x00, 0x00, // ThrottleTime
+                0x00, 0x00, 0x00, 0x01, // Number of Topics
+                0x00, 0x05, b't', b'o', b'p', b'i', b'c', // Topic
+                0x00, 0x00, 0x00, 0x01, // Number of Partitions
+                0x00, 0x00, 0x00, 0x05, // Partition
+                0x00, 0x01, // Error
+                0x00, 0x00, 0x00, 0x00, 0x10, 0x10, 0x10, 0x10, // High Watermark Offset
+                0x00, 0x00, 0x00, 0x00, 0x10, 0x10, 0x10, 0x10, // Last Stable Offset
+                0x00, 0x00, 0x00, 0x00, // Number of Aborted Transactions
+                0x00, 0x00, 0x00, 0x1C, // messageSet
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x55, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10,
+                // message
+                0x23, 0x96, 0x4a, 0xf7, // CRC
+                0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x02, 0x00, 0xEE,
+            ]
+            .as_ref(),
+        )] {
+            let mut reader = Cursor::new(data);
+            let got = FetchResponse::read_versioned(&mut reader, ApiVersion(version)).unwrap();
+            assert_eq!(got, want, "{name}/{version}");
+        }
     }
 }

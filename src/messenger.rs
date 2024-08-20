@@ -1,29 +1,21 @@
-use std::{
-    collections::HashMap,
-    future::Future,
-    io::Cursor,
-    ops::DerefMut,
-    sync::{
-        atomic::{AtomicI32, Ordering},
-        Arc,
-    },
-    task::Poll,
-};
+use std::collections::HashMap;
+use std::future::Future;
+use std::io::Cursor;
+use std::ops::DerefMut;
+use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::Arc;
+use std::task::Poll;
 
 use futures::future::BoxFuture;
 use parking_lot::Mutex;
 use thiserror::Error;
-use tokio::{
-    io::{AsyncRead, AsyncWrite, AsyncWriteExt, WriteHalf},
-    sync::{
-        oneshot::{channel, Sender},
-        Mutex as AsyncMutex,
-    },
-    task::JoinHandle,
-};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, WriteHalf};
+use tokio::sync::oneshot::{channel, Sender};
+use tokio::sync::Mutex as AsyncMutex;
+use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 
-use crate::protocol::{api_version::ApiVersionRange, primitives::CompactString};
+use crate::protocol::api_version::ApiVersionRange;
 use crate::protocol::{messages::ApiVersionsRequest, traits::ReadType};
 use crate::{
     backoff::ErrorOrThrottle,
@@ -36,7 +28,7 @@ use crate::{
             ReadVersionedError, ReadVersionedType, RequestBody, RequestHeader, ResponseHeader,
             SaslAuthenticateRequest, SaslHandshakeRequest, WriteVersionedError, WriteVersionedType,
         },
-        primitives::{Int16, Int32, NullableString, TaggedFields},
+        primitives::TaggedFields,
     },
     throttle::maybe_throttle,
 };
@@ -209,8 +201,7 @@ where
                         // read header as version 0 (w/o tagged fields) first since this is a strict prefix or the more advanced
                         // header version
                         let mut header =
-                            match ResponseHeader::read_versioned(&mut cursor, ApiVersion(Int16(0)))
-                            {
+                            match ResponseHeader::read_versioned(&mut cursor, ApiVersion(0)) {
                                 Ok(header) => header,
                                 Err(e) => {
                                     warn!(%e, "Cannot read message header, ignoring message");
@@ -220,11 +211,11 @@ where
 
                         let active_request = match state_captured.lock().deref_mut() {
                             MessengerState::RequestMap(map) => {
-                                if let Some(active_request) = map.remove(&header.correlation_id.0) {
+                                if let Some(active_request) = map.remove(&header.correlation_id) {
                                     active_request
                                 } else {
                                     warn!(
-                                        correlation_id = header.correlation_id.0,
+                                        correlation_id = header.correlation_id,
                                         "Got response for unknown request",
                                     );
                                     continue;
@@ -330,16 +321,16 @@ where
         let header = RequestHeader {
             request_api_key: R::API_KEY,
             request_api_version: body_api_version,
-            correlation_id: Int32(correlation_id),
+            correlation_id,
             // Technically we don't need to send a client_id, but newer redpanda version fail to parse the message
             // without it. See https://github.com/influxdata/rskafka/issues/169 .
-            client_id: Some(NullableString(Some(String::from(self.client_id.as_ref())))),
+            client_id: Some(String::from(self.client_id.as_ref())),
             tagged_fields: Some(TaggedFields::default()),
         };
         let header_version = if use_tagged_fields_in_request {
-            ApiVersion(Int16(2))
+            ApiVersion(2)
         } else {
-            ApiVersion(Int16(1))
+            ApiVersion(1)
         };
 
         let mut buf = Vec::new();
@@ -419,23 +410,18 @@ where
     ///
     /// Takes `&self mut` to ensure exclusive access.
     pub async fn sync_versions(&mut self) -> Result<(), SyncVersionsError> {
-        'iter_upper_bound: for upper_bound in (ApiVersionsRequest::API_VERSION_RANGE.min().0 .0
-            ..=ApiVersionsRequest::API_VERSION_RANGE.max().0 .0)
+        'iter_upper_bound: for upper_bound in (ApiVersionsRequest::API_VERSION_RANGE.min().0
+            ..=ApiVersionsRequest::API_VERSION_RANGE.max().0)
             .rev()
         {
             let version_ranges = HashMap::from([(
                 ApiKey::ApiVersions,
-                ApiVersionRange::new(
-                    ApiVersionsRequest::API_VERSION_RANGE.min(),
-                    ApiVersion(Int16(upper_bound)),
-                ),
+                ApiVersionRange::new(ApiVersionsRequest::API_VERSION_RANGE.min().0, upper_bound),
             )]);
 
             let body = ApiVersionsRequest {
-                client_software_name: Some(CompactString(String::from(env!("CARGO_PKG_NAME")))),
-                client_software_version: Some(CompactString(String::from(env!(
-                    "CARGO_PKG_VERSION"
-                )))),
+                client_software_name: Some(String::from(env!("CARGO_PKG_NAME"))),
+                client_software_version: Some(String::from(env!("CARGO_PKG_VERSION"))),
                 tagged_fields: Some(TaggedFields::default()),
             };
 
@@ -457,9 +443,9 @@ where
                             continue 'throttle;
                         }
 
-                        if let Some(e) = response.error_code {
+                        if let Some(err) = response.error_code {
                             debug!(
-                                %e,
+                                %err,
                                 version=upper_bound,
                                 "Got error during version sync, cannot use version for ApiVersionRequest",
                             );
@@ -483,7 +469,7 @@ where
                             .map(|x| {
                                 (
                                     x.api_key,
-                                    ApiVersionRange::new(x.min_version, x.max_version),
+                                    ApiVersionRange::new(x.min_version.0, x.max_version.0),
                                 )
                             })
                             .collect();
@@ -513,9 +499,9 @@ where
                         );
                         continue 'iter_upper_bound;
                     }
-                    Err(e @ RequestError::TooMuchData { .. }) => {
+                    Err(err @ RequestError::TooMuchData { .. }) => {
                         debug!(
-                            %e,
+                            %err,
                             version=upper_bound,
                             "Cannot read ApiVersionResponse for version",
                         );
@@ -544,7 +530,7 @@ where
         let req = SaslAuthenticateRequest::new(auth_bytes);
         let resp = self.request(req).await?;
         if let Some(err) = resp.error_code {
-            if let Some(s) = resp.error_message.0 {
+            if let Some(s) = resp.error_message {
                 debug!("Sasl auth error message: {s}");
             }
             return Err(SaslError::ApiError(err));
@@ -704,34 +690,22 @@ mod tests {
     #[test]
     fn test_match_versions() {
         assert_eq!(
-            match_versions(
-                ApiVersionRange::new(ApiVersion(Int16(10)), ApiVersion(Int16(20))),
-                ApiVersionRange::new(ApiVersion(Int16(10)), ApiVersion(Int16(20))),
-            ),
-            Some(ApiVersion(Int16(20))),
+            match_versions(ApiVersionRange::new(10, 20), ApiVersionRange::new(10, 20),),
+            Some(ApiVersion(20)),
         );
 
         assert_eq!(
-            match_versions(
-                ApiVersionRange::new(ApiVersion(Int16(10)), ApiVersion(Int16(15))),
-                ApiVersionRange::new(ApiVersion(Int16(13)), ApiVersion(Int16(20))),
-            ),
-            Some(ApiVersion(Int16(15))),
+            match_versions(ApiVersionRange::new(10, 15), ApiVersionRange::new(13, 20),),
+            Some(ApiVersion(15)),
         );
 
         assert_eq!(
-            match_versions(
-                ApiVersionRange::new(ApiVersion(Int16(10)), ApiVersion(Int16(15))),
-                ApiVersionRange::new(ApiVersion(Int16(15)), ApiVersion(Int16(20))),
-            ),
-            Some(ApiVersion(Int16(15))),
+            match_versions(ApiVersionRange::new(10, 15), ApiVersionRange::new(15, 20),),
+            Some(ApiVersion(15)),
         );
 
         assert_eq!(
-            match_versions(
-                ApiVersionRange::new(ApiVersion(Int16(10)), ApiVersion(Int16(14))),
-                ApiVersionRange::new(ApiVersion(Int16(15)), ApiVersion(Int16(20))),
-            ),
+            match_versions(ApiVersionRange::new(10, 14), ApiVersionRange::new(15, 20),),
             None,
         );
     }
@@ -744,17 +718,17 @@ mod tests {
         // construct response
         let mut msg = vec![];
         ResponseHeader {
-            correlation_id: Int32(0),
+            correlation_id: 0,
             tagged_fields: Default::default(), // NOT serialized for ApiVersion!
         }
-        .write_versioned(&mut msg, ApiVersion(Int16(0)))
+        .write_versioned(&mut msg, ApiVersion(0))
         .unwrap();
         ApiVersionsResponse {
             error_code: None,
             api_keys: vec![ApiVersionsResponseApiKey {
                 api_key: ApiKey::Produce,
-                min_version: ApiVersion(Int16(1)),
-                max_version: ApiVersion(Int16(5)),
+                min_version: ApiVersion(1),
+                max_version: ApiVersion(5),
                 tagged_fields: Default::default(),
             }],
             throttle_time_ms: None,
@@ -766,10 +740,7 @@ mod tests {
 
         // sync versions
         messenger.sync_versions().await.unwrap();
-        let expected = HashMap::from([(
-            (ApiKey::Produce),
-            ApiVersionRange::new(ApiVersion(Int16(1)), ApiVersion(Int16(5))),
-        )]);
+        let expected = HashMap::from([(ApiKey::Produce, ApiVersionRange::new(1, 5))]);
         assert_eq!(messenger.version_ranges, expected);
     }
 
@@ -781,17 +752,17 @@ mod tests {
         // construct error response
         let mut msg = vec![];
         ResponseHeader {
-            correlation_id: Int32(0),
+            correlation_id: 0,
             tagged_fields: Default::default(), // NOT serialized for ApiVersion!
         }
-        .write_versioned(&mut msg, ApiVersion(Int16(0)))
+        .write_versioned(&mut msg, ApiVersion(0))
         .unwrap();
         ApiVersionsResponse {
             error_code: Some(ApiError::CorruptMessage),
             api_keys: vec![ApiVersionsResponseApiKey {
                 api_key: ApiKey::Produce,
-                min_version: ApiVersion(Int16(2)),
-                max_version: ApiVersion(Int16(3)),
+                min_version: ApiVersion(2),
+                max_version: ApiVersion(3),
                 tagged_fields: Default::default(),
             }],
             throttle_time_ms: None,
@@ -804,17 +775,17 @@ mod tests {
         // construct good response
         let mut msg = vec![];
         ResponseHeader {
-            correlation_id: Int32(1),
+            correlation_id: 1,
             tagged_fields: Default::default(),
         }
-        .write_versioned(&mut msg, ApiVersion(Int16(0)))
+        .write_versioned(&mut msg, ApiVersion(0))
         .unwrap();
         ApiVersionsResponse {
             error_code: None,
             api_keys: vec![ApiVersionsResponseApiKey {
                 api_key: ApiKey::Produce,
-                min_version: ApiVersion(Int16(1)),
-                max_version: ApiVersion(Int16(5)),
+                min_version: ApiVersion(1),
+                max_version: ApiVersion(5),
                 tagged_fields: Default::default(),
             }],
             throttle_time_ms: None,
@@ -822,17 +793,14 @@ mod tests {
         }
         .write_versioned(
             &mut msg,
-            ApiVersion(Int16(ApiVersionsRequest::API_VERSION_RANGE.max().0 .0 - 1)),
+            ApiVersion(ApiVersionsRequest::API_VERSION_RANGE.max().0 - 1),
         )
         .unwrap();
         sim.push(msg);
 
         // sync versions
         messenger.sync_versions().await.unwrap();
-        let expected = HashMap::from([(
-            (ApiKey::Produce),
-            ApiVersionRange::new(ApiVersion(Int16(1)), ApiVersion(Int16(5))),
-        )]);
+        let expected = HashMap::from([(ApiKey::Produce, ApiVersionRange::new(1, 5))]);
         assert_eq!(messenger.version_ranges, expected);
     }
 
@@ -844,10 +812,10 @@ mod tests {
         // construct error response
         let mut msg = vec![];
         ResponseHeader {
-            correlation_id: Int32(0),
+            correlation_id: 0,
             tagged_fields: Default::default(), // NOT serialized for ApiVersion!
         }
-        .write_versioned(&mut msg, ApiVersion(Int16(0)))
+        .write_versioned(&mut msg, ApiVersion(0))
         .unwrap();
         msg.push(b'\0'); // malformed message body which can happen if the server doesn't really support this version
         sim.push(msg);
@@ -855,17 +823,17 @@ mod tests {
         // construct good response
         let mut msg = vec![];
         ResponseHeader {
-            correlation_id: Int32(1),
+            correlation_id: 1,
             tagged_fields: Default::default(),
         }
-        .write_versioned(&mut msg, ApiVersion(Int16(0)))
+        .write_versioned(&mut msg, ApiVersion(0))
         .unwrap();
         ApiVersionsResponse {
             error_code: None,
             api_keys: vec![ApiVersionsResponseApiKey {
                 api_key: ApiKey::Produce,
-                min_version: ApiVersion(Int16(1)),
-                max_version: ApiVersion(Int16(5)),
+                min_version: ApiVersion(1),
+                max_version: ApiVersion(5),
                 tagged_fields: Default::default(),
             }],
             throttle_time_ms: None,
@@ -873,17 +841,14 @@ mod tests {
         }
         .write_versioned(
             &mut msg,
-            ApiVersion(Int16(ApiVersionsRequest::API_VERSION_RANGE.max().0 .0 - 1)),
+            ApiVersion(ApiVersionsRequest::API_VERSION_RANGE.max().0 - 1),
         )
         .unwrap();
         sim.push(msg);
 
         // sync versions
         messenger.sync_versions().await.unwrap();
-        let expected = HashMap::from([(
-            (ApiKey::Produce),
-            ApiVersionRange::new(ApiVersion(Int16(1)), ApiVersion(Int16(5))),
-        )]);
+        let expected = HashMap::from([((ApiKey::Produce), ApiVersionRange::new(1, 5))]);
         assert_eq!(messenger.version_ranges, expected);
     }
 
@@ -895,17 +860,17 @@ mod tests {
         // construct response
         let mut msg = vec![];
         ResponseHeader {
-            correlation_id: Int32(0),
+            correlation_id: 0,
             tagged_fields: Default::default(), // NOT serialized for ApiVersion!
         }
-        .write_versioned(&mut msg, ApiVersion(Int16(0)))
+        .write_versioned(&mut msg, ApiVersion(0))
         .unwrap();
         ApiVersionsResponse {
             error_code: None,
             api_keys: vec![ApiVersionsResponseApiKey {
                 api_key: ApiKey::Produce,
-                min_version: ApiVersion(Int16(2)),
-                max_version: ApiVersion(Int16(1)),
+                min_version: ApiVersion(2),
+                max_version: ApiVersion(1),
                 tagged_fields: Default::default(),
             }],
             throttle_time_ms: None,
@@ -928,17 +893,17 @@ mod tests {
         // construct response
         let mut msg = vec![];
         ResponseHeader {
-            correlation_id: Int32(0),
+            correlation_id: 0,
             tagged_fields: Default::default(), // NOT serialized for ApiVersion!
         }
-        .write_versioned(&mut msg, ApiVersion(Int16(0)))
+        .write_versioned(&mut msg, ApiVersion(0))
         .unwrap();
         ApiVersionsResponse {
             error_code: None,
             api_keys: vec![ApiVersionsResponseApiKey {
                 api_key: ApiKey::Produce,
-                min_version: ApiVersion(Int16(1)),
-                max_version: ApiVersion(Int16(2)),
+                min_version: ApiVersion(1),
+                max_version: ApiVersion(2),
                 tagged_fields: Default::default(),
             }],
             throttle_time_ms: None,
@@ -952,17 +917,17 @@ mod tests {
         // construct good response
         let mut msg = vec![];
         ResponseHeader {
-            correlation_id: Int32(1),
+            correlation_id: 1,
             tagged_fields: Default::default(),
         }
-        .write_versioned(&mut msg, ApiVersion(Int16(0)))
+        .write_versioned(&mut msg, ApiVersion(0))
         .unwrap();
         ApiVersionsResponse {
             error_code: None,
             api_keys: vec![ApiVersionsResponseApiKey {
                 api_key: ApiKey::Produce,
-                min_version: ApiVersion(Int16(1)),
-                max_version: ApiVersion(Int16(5)),
+                min_version: ApiVersion(1),
+                max_version: ApiVersion(5),
                 tagged_fields: Default::default(),
             }],
             throttle_time_ms: None,
@@ -970,17 +935,14 @@ mod tests {
         }
         .write_versioned(
             &mut msg,
-            ApiVersion(Int16(ApiVersionsRequest::API_VERSION_RANGE.max().0 .0 - 1)),
+            ApiVersion(ApiVersionsRequest::API_VERSION_RANGE.max().0 - 1),
         )
         .unwrap();
         sim.push(msg);
 
         // sync versions
         messenger.sync_versions().await.unwrap();
-        let expected = HashMap::from([(
-            (ApiKey::Produce),
-            ApiVersionRange::new(ApiVersion(Int16(1)), ApiVersion(Int16(5))),
-        )]);
+        let expected = HashMap::from([((ApiKey::Produce), ApiVersionRange::new(1, 5))]);
         assert_eq!(messenger.version_ranges, expected);
     }
 
@@ -990,30 +952,30 @@ mod tests {
         let mut messenger = Messenger::new(rx, 1_000, Arc::from(DEFAULT_CLIENT_ID));
 
         // construct error response
-        for (i, v) in ((ApiVersionsRequest::API_VERSION_RANGE.min().0 .0)
-            ..=(ApiVersionsRequest::API_VERSION_RANGE.max().0 .0))
+        for (i, v) in ((ApiVersionsRequest::API_VERSION_RANGE.min().0)
+            ..=(ApiVersionsRequest::API_VERSION_RANGE.max().0))
             .rev()
             .enumerate()
         {
             let mut msg = vec![];
             ResponseHeader {
-                correlation_id: Int32(i as i32),
+                correlation_id: i as i32,
                 tagged_fields: Default::default(),
             }
-            .write_versioned(&mut msg, ApiVersion(Int16(0)))
+            .write_versioned(&mut msg, ApiVersion(0))
             .unwrap();
             ApiVersionsResponse {
                 error_code: Some(ApiError::CorruptMessage),
                 api_keys: vec![ApiVersionsResponseApiKey {
                     api_key: ApiKey::Produce,
-                    min_version: ApiVersion(Int16(1)),
-                    max_version: ApiVersion(Int16(5)),
+                    min_version: ApiVersion(1),
+                    max_version: ApiVersion(5),
                     tagged_fields: Default::default(),
                 }],
                 throttle_time_ms: None,
                 tagged_fields: None,
             }
-            .write_versioned(&mut msg, ApiVersion(Int16(v)))
+            .write_versioned(&mut msg, ApiVersion(v))
             .unwrap();
             sim.push(msg);
         }
@@ -1093,15 +1055,15 @@ mod tests {
         // construct good response
         let mut msg = vec![];
         ResponseHeader {
-            correlation_id: Int32(0),
+            correlation_id: 0,
             tagged_fields: Default::default(), // NOT serialized for ApiVersion!
         }
-        .write_versioned(&mut msg, ApiVersion(Int16(0)))
+        .write_versioned(&mut msg, ApiVersion(0))
         .unwrap();
         let resp = ApiVersionsResponse {
             error_code: Some(ApiError::CorruptMessage),
             api_keys: vec![],
-            throttle_time_ms: Some(Int32(1)),
+            throttle_time_ms: Some(1),
             tagged_fields: Some(TaggedFields::default()),
         };
         resp.write_versioned(&mut msg, ApiVersionsRequest::API_VERSION_RANGE.max())
@@ -1110,8 +1072,8 @@ mod tests {
 
         let actual = messenger
             .request(ApiVersionsRequest {
-                client_software_name: Some(CompactString(String::new())),
-                client_software_version: Some(CompactString(String::new())),
+                client_software_name: Some(String::new()),
+                client_software_version: Some(String::new()),
                 tagged_fields: Some(TaggedFields::default()),
             })
             .await
@@ -1177,20 +1139,18 @@ mod tests {
             for correlation_id in 0.. {
                 let data = rx_back.read_message(1_000).await.unwrap();
                 let mut data = Cursor::new(data);
-                let header =
-                    RequestHeader::read_versioned(&mut data, ApiVersion(Int16(1))).unwrap();
+                let header = RequestHeader::read_versioned(&mut data, ApiVersion(1)).unwrap();
                 assert_eq!(
                     header,
                     RequestHeader {
                         request_api_key: ApiKey::ApiVersions,
-                        request_api_version: ApiVersion(Int16(0)),
-                        correlation_id: Int32(correlation_id),
-                        client_id: Some(NullableString(Some(String::from(env!("CARGO_PKG_NAME"))))),
+                        request_api_version: ApiVersion(0),
+                        correlation_id,
+                        client_id: Some(String::from(env!("CARGO_PKG_NAME"))),
                         tagged_fields: None,
                     }
                 );
-                let body =
-                    ApiVersionsRequest::read_versioned(&mut data, ApiVersion(Int16(0))).unwrap();
+                let body = ApiVersionsRequest::read_versioned(&mut data, ApiVersion(0)).unwrap();
                 assert_eq!(
                     body,
                     ApiVersionsRequest {
@@ -1203,15 +1163,15 @@ mod tests {
 
                 let mut msg = vec![];
                 ResponseHeader {
-                    correlation_id: Int32(correlation_id),
+                    correlation_id,
                     tagged_fields: Default::default(), // NOT serialized for ApiVersion!
                 }
-                .write_versioned(&mut msg, ApiVersion(Int16(0)))
+                .write_versioned(&mut msg, ApiVersion(0))
                 .unwrap();
                 let resp = ApiVersionsResponse {
                     error_code: Some(ApiError::CorruptMessage),
                     api_keys: vec![],
-                    throttle_time_ms: Some(Int32(1)),
+                    throttle_time_ms: Some(1),
                     tagged_fields: Some(TaggedFields::default()),
                 };
                 resp.write_versioned(&mut msg, ApiVersionsRequest::API_VERSION_RANGE.min())
@@ -1222,15 +1182,15 @@ mod tests {
 
         messenger.set_version_ranges(HashMap::from([(
             ApiKey::ApiVersions,
-            ApiVersionRange::new(ApiVersion(Int16(0)), ApiVersion(Int16(0))),
+            ApiVersionRange::new(0, 0),
         )]));
 
         // send first message, this task will be canceled after 3 bytes got sent.
         let task_to_cancel = (async {
             messenger
                 .request(ApiVersionsRequest {
-                    client_software_name: Some(CompactString(String::from("foo"))),
-                    client_software_version: Some(CompactString(String::from("bar"))),
+                    client_software_name: Some(String::from("foo")),
+                    client_software_version: Some(String::from("bar")),
                     tagged_fields: Some(TaggedFields::default()),
                 })
                 .await
@@ -1257,8 +1217,8 @@ mod tests {
         tokio::time::timeout(Duration::from_millis(100), async {
             messenger
                 .request(ApiVersionsRequest {
-                    client_software_name: Some(CompactString(String::from("foo"))),
-                    client_software_version: Some(CompactString(String::from("bar"))),
+                    client_software_name: Some(String::from("foo")),
+                    client_software_version: Some(String::from("bar")),
                     tagged_fields: Some(TaggedFields::default()),
                 })
                 .await
@@ -1306,7 +1266,7 @@ mod tests {
                         }
                         Message::NegativeMessageSize => {
                             let mut buf = vec![];
-                            Int32(-1).write(&mut buf).unwrap();
+                            (-1i32).write(&mut buf).unwrap();
                             tx.write_all(&buf).await.unwrap()
                         }
                         Message::HangUp => {

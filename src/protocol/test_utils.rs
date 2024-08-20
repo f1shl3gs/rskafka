@@ -30,4 +30,36 @@ macro_rules! test_roundtrip {
     };
 }
 
-pub(crate) use test_roundtrip;
+macro_rules! test_compact_roundtrip {
+    ($t:ty, $name:ident) => {
+        #[allow(unused_imports)]
+        use proptest::prelude::*;
+
+        proptest! {
+            #![proptest_config(ProptestConfig{fork: false, ..Default::default()})]
+            #[test]
+            fn $name(orig: $t) {
+                #[allow(unused_imports)]
+                use std::io::Cursor;
+
+                let mut buf = Cursor::new(Vec::<u8>::new());
+                match orig.write_compact(&mut buf) {
+                    Err(_) => {
+                        // skip
+                    }
+                    Ok(()) => {
+                        let l = buf.position();
+                        buf.set_position(0);
+
+                        let restored = <$t>::read_compact(&mut buf).unwrap();
+                        assert_eq!(orig, restored);
+
+                        assert_eq!(buf.position(), l);
+                    }
+                }
+            }
+        }
+    };
+}
+
+pub(crate) use {test_compact_roundtrip, test_roundtrip};

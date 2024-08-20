@@ -1,27 +1,31 @@
-use async_trait::async_trait;
 use std::ops::ControlFlow;
 use std::sync::Arc;
+
+use async_trait::async_trait;
+use futures::StreamExt;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info};
 
-use crate::{
-    backoff::{Backoff, BackoffConfig, ErrorOrThrottle},
-    client::{Error, Result},
-    connection::{
-        BrokerCache, BrokerCacheGeneration, BrokerConnection, BrokerConnector, MessengerTransport,
-        MetadataLookupMode,
-    },
-    messenger::RequestError,
-    protocol::{
-        error::Error as ProtocolError,
-        messages::{CreateTopicRequest, CreateTopicsRequest, DeleteTopicsRequest},
-        primitives::{Array, Int16, Int32, String_},
-    },
-    throttle::maybe_throttle,
-    validation::ExactlyOne,
-};
-
 use super::error::RequestContext;
+use crate::backoff::{Backoff, BackoffConfig, ErrorOrThrottle};
+use crate::client::{Error, Result};
+use crate::connection::{
+    BrokerCache, BrokerCacheGeneration, BrokerConnection, BrokerConnector, MessengerTransport,
+    MetadataLookupMode,
+};
+use crate::messenger::RequestError;
+use crate::protocol::messages::{
+    CoordinatorType, DescribeGroupsRequest, DescribeGroupsResponseGroup, FindCoordinatorRequest,
+    ListGroupsRequest, OffsetFetchRequest, OffsetFetchRequestTopic, OffsetFetchResponseTopic,
+};
+use crate::protocol::{
+    error::Error as ProtocolError,
+    messages::{
+        CreateTopicRequest, CreateTopicsRequest, DeleteTopicsRequest, ListGroupsResponseGroup,
+    },
+};
+use crate::throttle::maybe_throttle;
+use crate::validation::ExactlyOne;
 
 #[derive(Debug)]
 pub struct ControllerClient {
@@ -52,14 +56,14 @@ impl ControllerClient {
     ) -> Result<()> {
         let request = &CreateTopicsRequest {
             topics: vec![CreateTopicRequest {
-                name: String_(name.into()),
-                num_partitions: Int32(num_partitions),
-                replication_factor: Int16(replication_factor),
+                name: name.into(),
+                num_partitions,
+                replication_factor,
                 assignments: vec![],
                 configs: vec![],
                 tagged_fields: None,
             }],
-            timeout_ms: Int32(timeout_ms),
+            timeout_ms,
             validate_only: None,
             tagged_fields: None,
         };
@@ -86,8 +90,8 @@ impl ControllerClient {
                 Some(protocol_error) => Err(ErrorOrThrottle::Error((
                     Error::ServerError {
                         protocol_error,
-                        error_message: topic.error_message.and_then(|s| s.0),
-                        request: RequestContext::Topic(topic.name.0),
+                        error_message: topic.error_message,
+                        request: RequestContext::Topic(topic.name),
                         response: None,
                         is_virtual: false,
                     },
@@ -110,8 +114,8 @@ impl ControllerClient {
         timeout_ms: i32,
     ) -> Result<()> {
         let request = &DeleteTopicsRequest {
-            topic_names: Array(Some(vec![String_(name.into())])),
-            timeout_ms: Int32(timeout_ms),
+            topic_names: vec![name.into()],
+            timeout_ms,
             tagged_fields: None,
         };
 
@@ -137,8 +141,8 @@ impl ControllerClient {
                 Some(protocol_error) => Err(ErrorOrThrottle::Error((
                     Error::ServerError {
                         protocol_error,
-                        error_message: topic.error_message.and_then(|s| s.0),
-                        request: RequestContext::Topic(topic.name.0),
+                        error_message: topic.error_message,
+                        request: RequestContext::Topic(topic.name),
                         response: None,
                         is_virtual: false,
                     },
@@ -154,6 +158,249 @@ impl ControllerClient {
         Ok(())
     }
 
+    /// ListGroups return a list group response or error.
+    pub async fn list_groups(&self) -> Result<Vec<ListGroupsResponseGroup>> {
+        let (metadata, _gen) = self
+            .brokers
+            .request_metadata(&MetadataLookupMode::ArbitraryBroker, None)
+            .await?;
+
+        let mut tasks = futures::stream::FuturesUnordered::new();
+        for broker in metadata.brokers {
+            let broker_id = broker.node_id;
+            let brokers = self.brokers.clone();
+            let backoff = self.backoff_config.clone();
+
+            tasks.push(async move {
+                let broker = match brokers.connect(broker_id).await? {
+                    Some(broker) => broker,
+                    None => return Ok(vec![]),
+                };
+                let req = &ListGroupsRequest {
+                    states_filter: vec![],
+                    tagged_fields: None,
+                };
+
+                // the broker_cache(2nd arg) is useless, but `maybe_retry` need this
+                maybe_retry(&backoff, brokers.as_ref(), "list_groups", || {
+                    let broker = broker.clone();
+
+                    async move {
+                        let resp = broker
+                            .request(req)
+                            .await
+                            .map_err(|err| ErrorOrThrottle::Error((err.into(), None)))?;
+
+                        maybe_throttle(resp.throttle_time_ms)?;
+
+                        if let Some(protocol_error) = resp.error_code {
+                            return Err(ErrorOrThrottle::Error((
+                                Error::ServerError {
+                                    protocol_error,
+                                    error_message: None,
+                                    request: RequestContext::Group("".to_string()),
+                                    response: None,
+                                    is_virtual: false,
+                                },
+                                None,
+                            )));
+                        }
+
+                        Ok(resp.groups)
+                    }
+                })
+                .await
+            });
+        }
+
+        let mut groups = vec![];
+        while let Some(result) = tasks.next().await {
+            if let Ok(partial) = result {
+                groups.extend(partial);
+            }
+        }
+
+        Ok(groups)
+    }
+
+    /// describe_groups return describe group response or error
+    pub async fn describe_groups(
+        &self,
+        groups: Vec<String>,
+    ) -> Result<Vec<DescribeGroupsResponseGroup>> {
+        // get coordinators
+        let mut coordinator_ids = vec![];
+        for group in &groups {
+            let req = &FindCoordinatorRequest {
+                key: group.clone(),
+                key_type: CoordinatorType::Group,
+                tagged_fields: None,
+            };
+
+            let coordinator_id = maybe_retry(
+                &self.backoff_config,
+                self,
+                "describe_groups",
+                || async move {
+                    let (broker, gen) = self
+                        .brokers
+                        .as_ref()
+                        .get()
+                        .await
+                        .map_err(|err| ErrorOrThrottle::Error((err.into(), None)))?;
+
+                    let resp = broker
+                        .request(req)
+                        .await
+                        .map_err(|err| ErrorOrThrottle::Error((err.into(), Some(gen))))?;
+
+                    maybe_throttle(resp.throttle_time_ms)?;
+
+                    Ok(resp.node_id)
+                },
+            )
+            .await?;
+
+            coordinator_ids.push(coordinator_id);
+        }
+
+        let req = &DescribeGroupsRequest {
+            groups,
+            include_authorized_operations: false,
+        };
+
+        let mut tasks = futures::stream::FuturesUnordered::new();
+        for coordinator_id in coordinator_ids {
+            let brokers = Arc::clone(&self.brokers);
+            let backoff = Arc::clone(&self.backoff_config);
+
+            tasks.push(async move {
+                let broker = match brokers.connect(coordinator_id).await? {
+                    Some(broker) => broker,
+                    None => return Ok::<Vec<DescribeGroupsResponseGroup>, Error>(vec![]),
+                };
+
+                let groups = maybe_retry(&backoff, brokers.as_ref(), "describe_groups", || async {
+                    let resp = broker
+                        .request(req)
+                        .await
+                        .map_err(|err| ErrorOrThrottle::Error((err.into(), None)))?;
+
+                    maybe_throttle(resp.throttle_time_ms)?;
+
+                    Ok(resp.groups)
+                })
+                .await?;
+
+                Ok(groups)
+            });
+        }
+
+        let mut groups = vec![];
+        while let Some(result) = tasks.next().await {
+            if let Ok(partial) = result {
+                groups.extend(partial);
+            }
+        }
+
+        Ok(groups)
+    }
+
+    pub async fn consumer_group_offsets(
+        &self,
+        group: String,
+        topics: Vec<OffsetFetchRequestTopic>,
+    ) -> Result<Vec<OffsetFetchResponseTopic>> {
+        let req = &FindCoordinatorRequest {
+            key: group.clone(),
+            key_type: CoordinatorType::Group,
+            tagged_fields: None,
+        };
+
+        let (coordinator, gen) = maybe_retry(
+            &self.backoff_config,
+            self,
+            "find_coordinator",
+            || async move {
+                let (broker, gen) = self
+                    .get()
+                    .await
+                    .map_err(|err| ErrorOrThrottle::Error((err, None)))?;
+                let resp = broker
+                    .request(req)
+                    .await
+                    .map_err(|err| ErrorOrThrottle::Error((err.into(), Some(gen))))?;
+
+                maybe_throttle(resp.throttle_time_ms)?;
+
+                if let Some(protocol_error) = resp.error_code {
+                    return Err(ErrorOrThrottle::Error((
+                        Error::ServerError {
+                            protocol_error,
+                            error_message: resp.error_message,
+                            request: RequestContext::Group(req.key.clone()),
+                            response: None,
+                            is_virtual: false,
+                        },
+                        Some(gen),
+                    )));
+                }
+
+                Ok((resp.node_id, gen))
+            },
+        )
+        .await?;
+
+        let req = &OffsetFetchRequest {
+            group_id: group,
+            topics,
+            require_stable: false,
+            tagged_fields: None,
+        };
+
+        maybe_retry(&self.backoff_config, self, "offset_fetch", || async move {
+            let broker = match self.brokers.connect(coordinator).await {
+                Ok(Some(conn)) => conn,
+                Ok(None) => {
+                    self.brokers
+                        .as_ref()
+                        .invalidate("connect coordinator failed", gen)
+                        .await;
+                    let err = Error::InvalidResponse(
+                        "coordinator not found in metadata cache".to_string(),
+                    );
+                    return Err(ErrorOrThrottle::Error((err, None)));
+                }
+                Err(err) => {
+                    return Err(ErrorOrThrottle::Error((Error::Connection(err), Some(gen))));
+                }
+            };
+
+            let resp = broker
+                .request(req)
+                .await
+                .map_err(|err| ErrorOrThrottle::Error((err.into(), Some(gen))))?;
+
+            maybe_throttle(resp.throttle_time_ms)?;
+
+            if let Some(protocol_error) = resp.error_code {
+                return Err(ErrorOrThrottle::Error((
+                    Error::ServerError {
+                        protocol_error,
+                        error_message: None,
+                        request: RequestContext::Group(req.group_id.clone()),
+                        response: None,
+                        is_virtual: false,
+                    },
+                    Some(gen),
+                )));
+            }
+
+            Ok(resp.topics)
+        })
+        .await
+    }
+
     /// Retrieve the broker ID of the controller
     async fn get_controller_id(&self) -> Result<i32> {
         // Request an uncached, fresh copy of the metadata.
@@ -164,8 +411,7 @@ impl ControllerClient {
 
         let controller_id = metadata
             .controller_id
-            .ok_or_else(|| Error::InvalidResponse("Leader is NULL".to_owned()))?
-            .0;
+            .ok_or_else(|| Error::InvalidResponse("Leader is NULL".to_owned()))?;
 
         Ok(controller_id)
     }
@@ -220,7 +466,7 @@ impl BrokerCache for &ControllerClient {
 
 /// Takes a `request_name` and a function yielding a fallible future
 /// and handles certain classes of error
-async fn maybe_retry<B, R, F, T>(
+pub async fn maybe_retry<B, R, F, T>(
     backoff_config: &BackoffConfig,
     broker_cache: B,
     request_name: &str,

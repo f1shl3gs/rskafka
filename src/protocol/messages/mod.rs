@@ -4,6 +4,8 @@
 //! - <https://kafka.apache.org/protocol#protocol_messages>
 //! - <https://cwiki.apache.org/confluence/display/KAFKA/KIP-482%3A+The+Kafka+Protocol+should+Support+Optional+Tagged+Fields>
 
+#![allow(dead_code)]
+
 use std::io::{Read, Write};
 
 use thiserror::Error;
@@ -11,7 +13,7 @@ use thiserror::Error;
 use super::{
     api_key::ApiKey,
     api_version::{ApiVersion, ApiVersionRange},
-    primitives::{Int32, UnsignedVarint},
+    primitives::UnsignedVarint,
     traits::{ReadError, ReadType, WriteError, WriteType},
     vec_builder::VecBuilder,
 };
@@ -38,6 +40,26 @@ mod produce;
 pub use produce::*;
 mod sasl_msg;
 pub use sasl_msg::*;
+mod consumer_group;
+pub use consumer_group::*;
+mod describe_groups;
+pub use describe_groups::*;
+mod find_coordinator;
+pub use find_coordinator::*;
+mod heartbeat;
+pub use heartbeat::*;
+mod join_group;
+pub use join_group::*;
+mod leave_group;
+pub use leave_group::*;
+mod list_groups;
+pub use list_groups::*;
+mod offset_commit;
+pub use offset_commit::*;
+mod offset_fetch;
+pub use offset_fetch::*;
+mod sync_group;
+pub use sync_group::*;
 #[cfg(test)]
 mod test_utils;
 
@@ -136,7 +158,7 @@ fn read_versioned_array<R: Read, T: ReadVersionedType<R>>(
     reader: &mut R,
     version: ApiVersion,
 ) -> Result<Option<Vec<T>>, ReadVersionedError> {
-    let len = Int32::read(reader)?.0;
+    let len = i32::read(reader)?;
     match len {
         -1 => Ok(None),
         l if l < -1 => Err(ReadVersionedError::ReadError(ReadError::Malformed(
@@ -165,10 +187,10 @@ fn write_versioned_array<W: Write, T: WriteVersionedType<W>>(
     data: Option<&[T]>,
 ) -> Result<(), WriteVersionedError> {
     match data {
-        None => Ok(Int32(-1).write(writer)?),
+        None => Ok((-1i32).write(writer)?),
         Some(inner) => {
             let len = i32::try_from(inner.len()).map_err(WriteError::from)?;
-            Int32(len).write(writer)?;
+            len.write(writer)?;
 
             for element in inner {
                 element.write_versioned(writer, version)?
@@ -235,8 +257,6 @@ mod tests {
 
     use assert_matches::assert_matches;
 
-    use crate::protocol::primitives::Int16;
-
     use super::*;
 
     #[derive(Debug, Copy, Clone, PartialEq)]
@@ -251,14 +271,14 @@ mod tests {
             version: ApiVersion,
         ) -> Result<(), WriteVersionedError> {
             assert_eq!(version, self.version);
-            Int32(42).write(writer)?;
+            42i32.write(writer)?;
             Ok(())
         }
     }
 
     impl<R: Read> ReadVersionedType<R> for VersionTest {
         fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-            assert_eq!(Int32::read(reader)?.0, 42);
+            assert_eq!(i32::read(reader)?, 42);
             Ok(Self { version })
         }
     }
@@ -267,24 +287,24 @@ mod tests {
     fn test_read_write_versioned() {
         for len in [0, 6] {
             for i in 0..3 {
-                let version = ApiVersion(Int16(i));
+                let version = ApiVersion(i);
                 let test = VersionTest { version };
                 let input = vec![test; len];
 
                 let mut buffer = vec![];
                 write_versioned_array(&mut buffer, version, Some(&input)).unwrap();
 
-                let mut cursor = std::io::Cursor::new(buffer);
+                let mut cursor = Cursor::new(buffer);
                 let output = read_versioned_array(&mut cursor, version).unwrap().unwrap();
 
                 assert_eq!(input, output);
             }
         }
 
-        let version = ApiVersion(Int16(0));
+        let version = ApiVersion(0);
         let mut buffer = vec![];
         write_versioned_array::<_, VersionTest>(&mut buffer, version, None).unwrap();
-        let mut cursor = std::io::Cursor::new(buffer);
+        let mut cursor = Cursor::new(buffer);
         assert!(read_versioned_array::<_, VersionTest>(&mut cursor, version)
             .unwrap()
             .is_none())
@@ -293,11 +313,10 @@ mod tests {
     #[test]
     fn test_read_versioned_blowup_memory() {
         let mut buf = Cursor::new(Vec::<u8>::new());
-        Int32(i32::MAX).write(&mut buf).unwrap();
+        i32::MAX.write(&mut buf).unwrap();
         buf.set_position(0);
 
-        let err =
-            read_versioned_array::<_, VersionTest>(&mut buf, ApiVersion(Int16(42))).unwrap_err();
+        let err = read_versioned_array::<_, VersionTest>(&mut buf, ApiVersion(42)).unwrap_err();
         assert_matches!(err, ReadVersionedError::ReadError(ReadError::IO(_)));
     }
 
@@ -305,14 +324,14 @@ mod tests {
     fn test_read_write_compact_versioned() {
         for len in [0, 6] {
             for i in 0..3 {
-                let version = ApiVersion(Int16(i));
+                let version = ApiVersion(i);
                 let test = VersionTest { version };
                 let input = vec![test; len];
 
                 let mut buffer = vec![];
                 write_compact_versioned_array(&mut buffer, version, Some(&input)).unwrap();
 
-                let mut cursor = std::io::Cursor::new(buffer);
+                let mut cursor = Cursor::new(buffer);
                 let output = read_compact_versioned_array(&mut cursor, version)
                     .unwrap()
                     .unwrap();
@@ -321,10 +340,10 @@ mod tests {
             }
         }
 
-        let version = ApiVersion(Int16(0));
+        let version = ApiVersion(0);
         let mut buffer = vec![];
         write_compact_versioned_array::<_, VersionTest>(&mut buffer, version, None).unwrap();
-        let mut cursor = std::io::Cursor::new(buffer);
+        let mut cursor = Cursor::new(buffer);
         assert!(
             read_compact_versioned_array::<_, VersionTest>(&mut cursor, version)
                 .unwrap()
@@ -338,8 +357,8 @@ mod tests {
         UnsignedVarint(u64::MAX).write(&mut buf).unwrap();
         buf.set_position(0);
 
-        let err = read_compact_versioned_array::<_, VersionTest>(&mut buf, ApiVersion(Int16(42)))
-            .unwrap_err();
+        let err =
+            read_compact_versioned_array::<_, VersionTest>(&mut buf, ApiVersion(42)).unwrap_err();
         assert_matches!(err, ReadVersionedError::ReadError(ReadError::IO(_)));
     }
 }

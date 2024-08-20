@@ -1,8 +1,6 @@
-use super::primitives::Int16;
-
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
 #[cfg_attr(test, derive(proptest_derive::Arbitrary))]
-pub struct ApiVersion(pub Int16);
+pub struct ApiVersion(pub i16);
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct ApiVersionRange {
@@ -12,15 +10,18 @@ pub struct ApiVersionRange {
 
 impl std::fmt::Display for ApiVersion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0 .0)
+        write!(f, "{}", self.0)
     }
 }
 
 impl ApiVersionRange {
-    pub const fn new(min: ApiVersion, max: ApiVersion) -> Self {
-        assert!(min.0 .0 <= max.0 .0);
+    pub const fn new(min: i16, max: i16) -> Self {
+        assert!(min <= max);
 
-        Self { min, max }
+        Self {
+            min: ApiVersion(min),
+            max: ApiVersion(max),
+        }
     }
 
     pub fn min(&self) -> ApiVersion {

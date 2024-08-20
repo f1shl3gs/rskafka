@@ -1,7 +1,10 @@
+#![allow(dead_code)]
+
+use std::{collections::BTreeMap, time::Duration};
+
 use chrono::{TimeZone, Utc};
 use parking_lot::Once;
 use rskafka::record::Record;
-use std::{collections::BTreeMap, time::Duration};
 
 /// Sensible test timeout.
 #[allow(dead_code)]
@@ -82,12 +85,10 @@ impl TestConfig {
             other => panic!("Invalid {ENV_TEST_BROKER_IMPL}: {other}"),
         };
 
-        let socks5_proxy = std::env::var(ENV_SOCKS5_PROXY).ok();
-
         Some(Self {
             bootstrap_brokers,
             broker_impl,
-            socks5_proxy,
+            socks5_proxy: std::env::var(ENV_SOCKS5_PROXY).ok(),
         })
     }
 }

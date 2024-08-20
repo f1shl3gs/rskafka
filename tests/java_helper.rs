@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
+use std::sync::LazyLock;
 
 use chrono::{TimeZone, Utc};
 use j4rs::{Instance, InvocationArg, Jvm, JvmBuilder, MavenArtifact};
-use once_cell::sync::Lazy;
 use rskafka::{
     client::partition::Compression,
     record::{Record, RecordAndOffset},
@@ -311,7 +311,7 @@ pub async fn consume(
 }
 
 /// Lazy static that tracks if we already installed all JVM dependencies.
-static JVM_SETUP: Lazy<()> = Lazy::new(|| {
+static JVM_SETUP: LazyLock<()> = LazyLock::new(|| {
     // The way JVM is hooked up via JNI is kinda weird. We have process-wide VMs that are always cached. On first
     // startup j4rs sets up the class path based on what's already installed. If we now run the installation VM in the
     // same process as our tests, we can never consume the freshly installed libraries. So we use a subprocess to run
@@ -348,7 +348,7 @@ static JVM_SETUP: Lazy<()> = Lazy::new(|| {
 });
 
 fn setup_jvm() -> Jvm {
-    Lazy::force(&JVM_SETUP);
+    LazyLock::force(&JVM_SETUP);
 
     let jvm = JvmBuilder::new().build().expect("setup JVM");
     jvm

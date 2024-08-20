@@ -1,5 +1,6 @@
 use std::io::{Read, Write};
 
+use crate::protocol::traits::{ReadCompactType, WriteCompactType};
 use crate::protocol::{
     api_key::ApiKey,
     api_version::{ApiVersion, ApiVersionRange},
@@ -8,20 +9,17 @@ use crate::protocol::{
         read_compact_versioned_array, read_versioned_array, ReadVersionedError, ReadVersionedType,
         RequestBody, WriteVersionedError, WriteVersionedType,
     },
-    primitives::{
-        Array, CompactArrayRef, CompactNullableString, CompactString, CompactStringRef, Int16,
-        Int32, String_, TaggedFields,
-    },
+    primitives::TaggedFields,
     traits::{ReadType, WriteType},
 };
 
 #[derive(Debug)]
 pub struct DeleteTopicsRequest {
     /// The names of the topics to delete.
-    pub topic_names: Array<String_>,
+    pub topic_names: Vec<String>,
 
     /// The length of time in milliseconds to wait for the deletions to complete.
-    pub timeout_ms: Int32,
+    pub timeout_ms: i32,
 
     /// The tagged fields.
     ///
@@ -35,10 +33,9 @@ impl RequestBody for DeleteTopicsRequest {
     const API_KEY: ApiKey = ApiKey::DeleteTopics;
 
     /// Enough for now.
-    const API_VERSION_RANGE: ApiVersionRange =
-        ApiVersionRange::new(ApiVersion(Int16(0)), ApiVersion(Int16(5)));
+    const API_VERSION_RANGE: ApiVersionRange = ApiVersionRange::new(0, 5);
 
-    const FIRST_TAGGED_FIELD_IN_REQUEST_VERSION: ApiVersion = ApiVersion(Int16(4));
+    const FIRST_TAGGED_FIELD_IN_REQUEST_VERSION: ApiVersion = ApiVersion(4);
 }
 
 impl<W> WriteVersionedType<W> for DeleteTopicsRequest
@@ -50,19 +47,11 @@ where
         writer: &mut W,
         version: ApiVersion,
     ) -> Result<(), WriteVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 5);
 
         if v >= 4 {
-            if let Some(topic_names) = self.topic_names.0.as_ref() {
-                let topic_names: Vec<_> = topic_names
-                    .iter()
-                    .map(|name| CompactStringRef(name.0.as_str()))
-                    .collect();
-                CompactArrayRef(Some(&topic_names)).write(writer)?;
-            } else {
-                CompactArrayRef::<CompactStringRef<'_>>(None).write(writer)?;
-            }
+            self.topic_names.write_compact(writer)?;
         } else {
             self.topic_names.write(writer)?;
         };
@@ -70,14 +59,7 @@ where
         self.timeout_ms.write(writer)?;
 
         if v >= 4 {
-            match self.tagged_fields.as_ref() {
-                Some(tagged_fields) => {
-                    tagged_fields.write(writer)?;
-                }
-                None => {
-                    TaggedFields::default().write(writer)?;
-                }
-            }
+            self.tagged_fields.write(writer)?;
         }
 
         Ok(())
@@ -85,12 +67,13 @@ where
 }
 
 #[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct DeleteTopicsResponse {
     /// The duration in milliseconds for which the request was throttled due to a quota violation, or zero if the
     /// request did not violate any quota.
     ///
     /// Added in version 1.
-    pub throttle_time_ms: Option<Int32>,
+    pub throttle_time_ms: Option<i32>,
 
     /// The results for each topic we tried to delete.
     pub responses: Vec<DeleteTopicsResponseTopic>,
@@ -106,10 +89,10 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 5);
 
-        let throttle_time_ms = (v >= 1).then(|| Int32::read(reader)).transpose()?;
+        let throttle_time_ms = (v >= 1).then(|| i32::read(reader)).transpose()?;
         let responses = if v >= 4 {
             read_compact_versioned_array(reader, version)?.unwrap_or_default()
         } else {
@@ -126,9 +109,12 @@ where
 }
 
 #[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct DeleteTopicsResponseTopic {
     /// The topic name.
-    pub name: String_,
+    ///
+    /// COMPACT_STRING > 3
+    pub name: String,
 
     /// The error code, or 0 if there was no error.
     pub error: Option<Error>,
@@ -136,7 +122,7 @@ pub struct DeleteTopicsResponseTopic {
     /// The error message, or null if there was no error.
     ///
     /// Added in version 5.
-    pub error_message: Option<CompactNullableString>,
+    pub error_message: Option<String>,
 
     /// The tagged fields.
     ///
@@ -149,19 +135,21 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 5);
 
-        let name = if v >= 4 {
-            String_(CompactString::read(reader)?.0)
+        let name = if v > 3 {
+            String::read_compact(reader)?
         } else {
-            String_::read(reader)?
+            String::read(reader)?
         };
-        let error = Error::new(Int16::read(reader)?.0);
-        let error_message = (v >= 5)
-            .then(|| CompactNullableString::read(reader))
-            .transpose()?;
-        let tagged_fields = (v >= 4).then(|| TaggedFields::read(reader)).transpose()?;
+        let error = Error::new(i16::read(reader)?);
+        let error_message = if v > 4 {
+            Option::<String>::read_compact(reader)?
+        } else {
+            None
+        };
+        let tagged_fields = (v > 3).then(|| TaggedFields::read(reader)).transpose()?;
 
         Ok(Self {
             name,
@@ -169,5 +157,97 @@ where
             error_message,
             tagged_fields,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use super::*;
+
+    #[test]
+    fn request() {
+        for (name, version, req, want) in [
+            (
+                "two topics",
+                0,
+                DeleteTopicsRequest {
+                    topic_names: vec!["topic".to_string(), "other".to_string()],
+                    timeout_ms: 100,
+                    tagged_fields: None,
+                },
+                [
+                    0, 0, 0, 2, 0, 5, b't', b'o', b'p', b'i', b'c', 0, 5, b'o', b't', b'h', b'e',
+                    b'r', 0, 0, 0, 100,
+                ]
+                .as_ref(),
+            ),
+            (
+                "two topics",
+                1,
+                DeleteTopicsRequest {
+                    topic_names: vec!["topic".to_string(), "other".to_string()],
+                    timeout_ms: 100,
+                    tagged_fields: None,
+                },
+                [
+                    0, 0, 0, 2, 0, 5, b't', b'o', b'p', b'i', b'c', 0, 5, b'o', b't', b'h', b'e',
+                    b'r', 0, 0, 0, 100,
+                ]
+                .as_ref(),
+            ),
+        ] {
+            let mut cursor = Cursor::new([0u8; 128]);
+            req.write_versioned(&mut cursor, ApiVersion(version))
+                .unwrap();
+            let len = cursor.position() as usize;
+            let got = &cursor.get_ref()[..len];
+            assert_eq!(got, want, "{name}/{version}");
+        }
+    }
+
+    #[test]
+    fn response() {
+        for (name, version, want, data) in [
+            (
+                "one topic",
+                0,
+                DeleteTopicsResponse {
+                    throttle_time_ms: None,
+                    responses: vec![DeleteTopicsResponseTopic {
+                        name: "topic".to_string(),
+                        error: None,
+                        error_message: None,
+                        tagged_fields: None,
+                    }],
+                    tagged_fields: None,
+                },
+                [0, 0, 0, 1, 0, 5, b't', b'o', b'p', b'i', b'c', 0, 0].as_ref(),
+            ),
+            (
+                "one topic",
+                1,
+                DeleteTopicsResponse {
+                    throttle_time_ms: Some(100),
+                    responses: vec![DeleteTopicsResponseTopic {
+                        name: "topic".to_string(),
+                        error: None,
+                        error_message: None,
+                        tagged_fields: None,
+                    }],
+                    tagged_fields: None,
+                },
+                [
+                    0, 0, 0, 100, 0, 0, 0, 1, 0, 5, b't', b'o', b'p', b'i', b'c', 0, 0,
+                ]
+                .as_ref(),
+            ),
+        ] {
+            let mut reader = Cursor::new(data);
+            let got =
+                DeleteTopicsResponse::read_versioned(&mut reader, ApiVersion(version)).unwrap();
+            assert_eq!(got, want, "{name}/{version}");
+        }
     }
 }

@@ -12,6 +12,7 @@ services:
       - zookeeper_data:/bitnami/zookeeper
   kafka-0:
     image: docker.io/bitnami/kafka:3
+    restart: on-failure
     ports:
       - "9010:9010"
       - "9096:9096"
@@ -26,11 +27,12 @@ services:
       - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=false
     volumes:
       - kafka_0_data:/bitnami/kafka
-      - ./kafka_jaas.conf:/opt/bitnami/kafka/config/kafka_jaas.conf
+      - ./kafka_jaas.conf:/opt/bitnami/kafka/config/kafka_jaas.conf:Z
     depends_on:
       - zookeeper
   kafka-1:
     image: docker.io/bitnami/kafka:3
+    restart: on-failure
     ports:
       - "9011:9011"
       - "9097:9097"
@@ -45,11 +47,12 @@ services:
       - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=false
     volumes:
       - kafka_1_data:/bitnami/kafka
-      - ./kafka_jaas.conf:/opt/bitnami/kafka/config/kafka_jaas.conf
+      - ./kafka_jaas.conf:/opt/bitnami/kafka/config/kafka_jaas.conf:Z
     depends_on:
       - zookeeper
   kafka-2:
     image: docker.io/bitnami/kafka:3
+    restart: on-failure
     ports:
       - "9012:9012"
       - "9098:9098"
@@ -64,7 +67,7 @@ services:
       - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=false
     volumes:
       - kafka_2_data:/bitnami/kafka
-      - ./kafka_jaas.conf:/opt/bitnami/kafka/config/kafka_jaas.conf
+      - ./kafka_jaas.conf:/opt/bitnami/kafka/config/kafka_jaas.conf:Z
     depends_on:
       - zookeeper
   proxy:

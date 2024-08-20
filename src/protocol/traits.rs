@@ -22,6 +22,13 @@ where
     fn read(reader: &mut R) -> Result<Self, ReadError>;
 }
 
+pub trait ReadCompactType<R>: Sized
+where
+    R: Read,
+{
+    fn read_compact(reader: &mut R) -> Result<Self, ReadError>;
+}
+
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum WriteError {
@@ -40,4 +47,11 @@ where
     W: Write,
 {
     fn write(&self, writer: &mut W) -> Result<(), WriteError>;
+}
+
+pub trait WriteCompactType<W>: Sized
+where
+    W: Write,
+{
+    fn write_compact(&self, writer: &mut W) -> Result<(), WriteError>;
 }

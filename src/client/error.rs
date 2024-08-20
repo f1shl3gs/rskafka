@@ -1,5 +1,6 @@
 use thiserror::Error;
 
+use crate::connection::Error as ConnectionError;
 pub use crate::messenger::RequestError;
 pub use crate::protocol::error::Error as ProtocolError;
 
@@ -7,6 +8,9 @@ pub use crate::protocol::error::Error as ProtocolError;
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum RequestContext {
+    /// Error is specific to a group.
+    Group(String),
+
     /// Error is specific to a topic.
     Topic(String),
 
@@ -56,7 +60,7 @@ pub enum ServerErrorResponse {
 #[non_exhaustive]
 pub enum Error {
     #[error("Connection error: {0}")]
-    Connection(#[from] crate::connection::Error),
+    Connection(#[from] ConnectionError),
 
     #[error("Request error: {0}")]
     Request(#[from] RequestError),

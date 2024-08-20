@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 use crate::protocol::{
     api_key::ApiKey,
     api_version::ApiVersion,
-    primitives::{Int16, Int32, NullableString, TaggedFields},
+    primitives::TaggedFields,
     traits::{ReadType, WriteType},
 };
 
@@ -19,12 +19,12 @@ pub struct RequestHeader {
     pub request_api_version: ApiVersion,
 
     /// The correlation ID of this request.
-    pub correlation_id: Int32,
+    pub correlation_id: i32,
 
     /// The client ID string.
     ///
     /// Added in version 1.
-    pub client_id: Option<NullableString>,
+    pub client_id: Option<String>,
 
     /// The tagged fields.
     ///
@@ -37,14 +37,18 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 2);
 
         Ok(Self {
-            request_api_key: ApiKey::from(Int16::read(reader)?),
-            request_api_version: ApiVersion(Int16::read(reader)?),
-            correlation_id: Int32::read(reader)?,
-            client_id: (v >= 1).then(|| NullableString::read(reader)).transpose()?,
+            request_api_key: ApiKey::from(i16::read(reader)?),
+            request_api_version: ApiVersion(i16::read(reader)?),
+            correlation_id: i32::read(reader)?,
+            client_id: if v >= 1 {
+                Option::<String>::read(reader)?
+            } else {
+                None
+            },
             tagged_fields: (v >= 2).then(|| TaggedFields::read(reader)).transpose()?,
         })
     }
@@ -59,10 +63,10 @@ where
         writer: &mut W,
         version: ApiVersion,
     ) -> Result<(), WriteVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 2);
 
-        Int16::from(self.request_api_key).write(writer)?;
+        i16::from(self.request_api_key).write(writer)?;
         self.request_api_version.0.write(writer)?;
         self.correlation_id.write(writer)?;
 
@@ -72,20 +76,13 @@ where
                     client_id.write(writer)?;
                 }
                 None => {
-                    NullableString::default().write(writer)?;
+                    Option::<String>::default().write(writer)?;
                 }
             }
         }
 
         if v >= 2 {
-            match self.tagged_fields.as_ref() {
-                Some(tagged_fields) => {
-                    tagged_fields.write(writer)?;
-                }
-                None => {
-                    TaggedFields::default().write(writer)?;
-                }
-            }
+            self.tagged_fields.write(writer)?;
         }
 
         Ok(())
@@ -96,7 +93,7 @@ where
 #[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct ResponseHeader {
     /// The correlation ID of this response.
-    pub correlation_id: Int32,
+    pub correlation_id: i32,
 
     /// The tagged fields.
     ///
@@ -109,11 +106,11 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 1);
 
         Ok(Self {
-            correlation_id: Int32::read(reader)?,
+            correlation_id: i32::read(reader)?,
             tagged_fields: (v >= 1).then(|| TaggedFields::read(reader)).transpose()?,
         })
     }
@@ -129,20 +126,13 @@ where
         writer: &mut W,
         version: ApiVersion,
     ) -> Result<(), WriteVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 1);
 
         self.correlation_id.write(writer)?;
 
         if v >= 1 {
-            match self.tagged_fields.as_ref() {
-                Some(tagged_fields) => {
-                    tagged_fields.write(writer)?;
-                }
-                None => {
-                    TaggedFields::default().write(writer)?;
-                }
-            }
+            self.tagged_fields.write(writer)?;
         }
 
         Ok(())
@@ -157,15 +147,15 @@ mod tests {
 
     test_roundtrip_versioned!(
         RequestHeader,
-        ApiVersion(Int16(0)),
-        ApiVersion(Int16(2)),
+        ApiVersion(0),
+        ApiVersion(2),
         test_roundtrip_request_header
     );
 
     test_roundtrip_versioned!(
         ResponseHeader,
-        ApiVersion(Int16(0)),
-        ApiVersion(Int16(1)),
+        ApiVersion(0),
+        ApiVersion(1),
         test_roundtrip_response_header
     );
 }

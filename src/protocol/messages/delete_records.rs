@@ -1,5 +1,9 @@
 use std::io::{Read, Write};
 
+use super::{
+    ReadVersionedError, ReadVersionedType, RequestBody, WriteVersionedError, WriteVersionedType,
+};
+use crate::protocol::traits::{ReadCompactType, WriteCompactType};
 use crate::protocol::{
     api_key::ApiKey,
     api_version::{ApiVersion, ApiVersionRange},
@@ -8,21 +12,17 @@ use crate::protocol::{
         read_compact_versioned_array, read_versioned_array, write_compact_versioned_array,
         write_versioned_array,
     },
-    primitives::{CompactString, CompactStringRef, Int16, Int32, Int64, String_, TaggedFields},
+    primitives::TaggedFields,
     traits::{ReadType, WriteType},
-};
-
-use super::{
-    ReadVersionedError, ReadVersionedType, RequestBody, WriteVersionedError, WriteVersionedType,
 };
 
 #[derive(Debug)]
 pub struct DeleteRequestPartition {
     /// The partition index.
-    pub partition_index: Int32,
+    pub partition_index: i32,
 
     /// The deletion offset.
-    pub offset: Int64,
+    pub offset: i64,
 
     /// The tagged fields.
     ///
@@ -39,21 +39,14 @@ where
         writer: &mut W,
         version: ApiVersion,
     ) -> Result<(), WriteVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 2);
 
         self.partition_index.write(writer)?;
         self.offset.write(writer)?;
 
         if v >= 2 {
-            match self.tagged_fields.as_ref() {
-                Some(tagged_fields) => {
-                    tagged_fields.write(writer)?;
-                }
-                None => {
-                    TaggedFields::default().write(writer)?;
-                }
-            }
+            self.tagged_fields.write(writer)?;
         }
 
         Ok(())
@@ -63,7 +56,7 @@ where
 #[derive(Debug)]
 pub struct DeleteRequestTopic {
     /// The topic name.
-    pub name: String_,
+    pub name: String,
 
     /// Each partition that we want to delete records from.
     pub partitions: Vec<DeleteRequestPartition>,
@@ -83,11 +76,11 @@ where
         writer: &mut W,
         version: ApiVersion,
     ) -> Result<(), WriteVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 2);
 
         if v >= 2 {
-            CompactStringRef(&self.name.0).write(writer)?
+            self.name.write_compact(writer)?
         } else {
             self.name.write(writer)?;
         }
@@ -99,14 +92,7 @@ where
         }
 
         if v >= 2 {
-            match self.tagged_fields.as_ref() {
-                Some(tagged_fields) => {
-                    tagged_fields.write(writer)?;
-                }
-                None => {
-                    TaggedFields::default().write(writer)?;
-                }
-            }
+            self.tagged_fields.write(writer)?;
         }
 
         Ok(())
@@ -119,7 +105,7 @@ pub struct DeleteRecordsRequest {
     pub topics: Vec<DeleteRequestTopic>,
 
     /// How long to wait for the deletion to complete, in milliseconds.
-    pub timeout_ms: Int32,
+    pub timeout_ms: i32,
 
     /// The tagged fields.
     ///
@@ -136,7 +122,7 @@ where
         writer: &mut W,
         version: ApiVersion,
     ) -> Result<(), WriteVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 2);
 
         if v >= 2 {
@@ -147,14 +133,7 @@ where
         self.timeout_ms.write(writer)?;
 
         if v >= 2 {
-            match self.tagged_fields.as_ref() {
-                Some(tagged_fields) => {
-                    tagged_fields.write(writer)?;
-                }
-                None => {
-                    TaggedFields::default().write(writer)?;
-                }
-            }
+            self.tagged_fields.write(writer)?;
         }
 
         Ok(())
@@ -167,19 +146,18 @@ impl RequestBody for DeleteRecordsRequest {
     const API_KEY: ApiKey = ApiKey::DeleteRecords;
 
     /// All versions.
-    const API_VERSION_RANGE: ApiVersionRange =
-        ApiVersionRange::new(ApiVersion(Int16(0)), ApiVersion(Int16(2)));
+    const API_VERSION_RANGE: ApiVersionRange = ApiVersionRange::new(0, 2);
 
-    const FIRST_TAGGED_FIELD_IN_REQUEST_VERSION: ApiVersion = ApiVersion(Int16(2));
+    const FIRST_TAGGED_FIELD_IN_REQUEST_VERSION: ApiVersion = ApiVersion(2);
 }
 
 #[derive(Debug)]
 pub struct DeleteResponsePartition {
     /// The partition index.
-    pub partition_index: Int32,
+    pub partition_index: i32,
 
     /// The partition low water mark.
-    pub low_watermark: Int64,
+    pub low_watermark: i64,
 
     /// The error code, or 0 if there was no error.
     pub error: Option<Error>,
@@ -195,12 +173,12 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 2);
 
-        let partition_index = Int32::read(reader)?;
-        let low_watermark = Int64::read(reader)?;
-        let error = Error::new(Int16::read(reader)?.0);
+        let partition_index = i32::read(reader)?;
+        let low_watermark = i64::read(reader)?;
+        let error = Error::new(i16::read(reader)?);
         let tagged_fields = (v >= 2).then(|| TaggedFields::read(reader)).transpose()?;
 
         Ok(Self {
@@ -215,7 +193,7 @@ where
 #[derive(Debug)]
 pub struct DeleteResponseTopic {
     /// The topic name.
-    pub name: String_,
+    pub name: String,
 
     /// Each partition that we wanted to delete records from.
     pub partitions: Vec<DeleteResponsePartition>,
@@ -231,13 +209,13 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 2);
 
         let name = if v >= 2 {
-            String_(CompactString::read(reader)?.0)
+            String::read_compact(reader)?
         } else {
-            String_::read(reader)?
+            String::read(reader)?
         };
         let partitions = if v >= 2 {
             read_compact_versioned_array(reader, version)?.unwrap_or_default()
@@ -258,7 +236,7 @@ where
 pub struct DeleteRecordsResponse {
     /// The duration in milliseconds for which the request was throttled due to a quota violation, or zero if the
     /// request did not violate any quota.
-    pub throttle_time_ms: Int32,
+    pub throttle_time_ms: i32,
 
     /// Each topic that we wanted to delete records from.
     pub topics: Vec<DeleteResponseTopic>,
@@ -274,10 +252,10 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 2);
 
-        let throttle_time_ms = Int32::read(reader)?;
+        let throttle_time_ms = i32::read(reader)?;
         let topics = if v >= 2 {
             read_compact_versioned_array(reader, version)?.unwrap_or_default()
         } else {

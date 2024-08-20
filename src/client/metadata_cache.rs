@@ -47,7 +47,7 @@ impl MetadataCache {
         // to ensure only the expected topics are present.
         if let Some(want) = topics {
             // Filter out any topics the caller did not ask for.
-            m.topics.retain(|t| want.contains(&t.name.0));
+            m.topics.retain(|t| want.contains(&t.name));
 
             // Validate the resulting number of topics in the metadata response.
             if m.topics.len() != want.len() {
@@ -96,10 +96,7 @@ impl MetadataCache {
 
 #[cfg(test)]
 mod tests {
-    use crate::protocol::{
-        messages::MetadataResponseTopic,
-        primitives::{Int32, String_},
-    };
+    use crate::protocol::messages::MetadataResponseTopic;
 
     use super::*;
 
@@ -109,7 +106,7 @@ mod tests {
             .into_iter()
             .flatten()
             .map(|t| MetadataResponseTopic {
-                name: String_(t.to_string()),
+                name: t.to_string(),
                 error: Default::default(),
                 is_internal: Default::default(),
                 partitions: Default::default(),
@@ -117,7 +114,7 @@ mod tests {
             .collect();
 
         MetadataResponse {
-            throttle_time_ms: Some(Int32(42)),
+            throttle_time_ms: Some(42),
             brokers: Default::default(),
             cluster_id: Default::default(),
             controller_id: Default::default(),

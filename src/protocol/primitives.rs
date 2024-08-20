@@ -6,23 +6,18 @@
 
 use std::io::{Cursor, Read, Write};
 
-use integer_encoding::{VarIntReader, VarIntWriter};
-
-#[cfg(test)]
-use proptest::prelude::*;
-
 use super::{
     record::RecordBatch,
     traits::{ReadError, ReadType, WriteError, WriteType},
     vec_builder::VecBuilder,
 };
+use crate::protocol::traits::{ReadCompactType, WriteCompactType};
+
+#[cfg(test)]
+use proptest::prelude::*;
 
 /// Represents a boolean
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
-#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
-pub struct Boolean(pub bool);
-
-impl<R> ReadType<R> for Boolean
+impl<R> ReadType<R> for bool
 where
     R: Read,
 {
@@ -30,18 +25,18 @@ where
         let mut buf = [0u8; 1];
         reader.read_exact(&mut buf)?;
         match buf[0] {
-            0 => Ok(Self(false)),
-            _ => Ok(Self(true)),
+            0 => Ok(false),
+            _ => Ok(true),
         }
     }
 }
 
-impl<W> WriteType<W> for Boolean
+impl<W> WriteType<W> for bool
 where
     W: Write,
 {
     fn write(&self, writer: &mut W) -> Result<(), WriteError> {
-        match self.0 {
+        match self {
             true => Ok(writer.write_all(&[1])?),
             false => Ok(writer.write_all(&[0])?),
         }
@@ -49,27 +44,23 @@ where
 }
 
 /// Represents an integer between `-2^7` and `2^7-1` inclusive.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
-#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
-pub struct Int8(pub i8);
-
-impl<R> ReadType<R> for Int8
+impl<R> ReadType<R> for i8
 where
     R: Read,
 {
     fn read(reader: &mut R) -> Result<Self, ReadError> {
         let mut buf = [0u8; 1];
         reader.read_exact(&mut buf)?;
-        Ok(Self(i8::from_be_bytes(buf)))
+        Ok(i8::from_be_bytes(buf))
     }
 }
 
-impl<W> WriteType<W> for Int8
+impl<W> WriteType<W> for i8
 where
     W: Write,
 {
     fn write(&self, writer: &mut W) -> Result<(), WriteError> {
-        let buf = self.0.to_be_bytes();
+        let buf = self.to_be_bytes();
         writer.write_all(&buf)?;
         Ok(())
     }
@@ -78,27 +69,23 @@ where
 /// Represents an integer between `-2^15` and `2^15-1` inclusive.
 ///
 /// The values are encoded using two bytes in network byte order (big-endian).
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
-#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
-pub struct Int16(pub i16);
-
-impl<R> ReadType<R> for Int16
+impl<R> ReadType<R> for i16
 where
     R: Read,
 {
     fn read(reader: &mut R) -> Result<Self, ReadError> {
         let mut buf = [0u8; 2];
         reader.read_exact(&mut buf)?;
-        Ok(Self(i16::from_be_bytes(buf)))
+        Ok(i16::from_be_bytes(buf))
     }
 }
 
-impl<W> WriteType<W> for Int16
+impl<W> WriteType<W> for i16
 where
     W: Write,
 {
     fn write(&self, writer: &mut W) -> Result<(), WriteError> {
-        let buf = self.0.to_be_bytes();
+        let buf = self.to_be_bytes();
         writer.write_all(&buf)?;
         Ok(())
     }
@@ -107,27 +94,23 @@ where
 /// Represents an integer between `-2^31` and `2^31-1` inclusive.
 ///
 /// The values are encoded using four bytes in network byte order (big-endian).
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
-#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
-pub struct Int32(pub i32);
-
-impl<R> ReadType<R> for Int32
+impl<R> ReadType<R> for i32
 where
     R: Read,
 {
     fn read(reader: &mut R) -> Result<Self, ReadError> {
         let mut buf = [0u8; 4];
         reader.read_exact(&mut buf)?;
-        Ok(Self(i32::from_be_bytes(buf)))
+        Ok(i32::from_be_bytes(buf))
     }
 }
 
-impl<W> WriteType<W> for Int32
+impl<W> WriteType<W> for i32
 where
     W: Write,
 {
     fn write(&self, writer: &mut W) -> Result<(), WriteError> {
-        let buf = self.0.to_be_bytes();
+        let buf = self.to_be_bytes();
         writer.write_all(&buf)?;
         Ok(())
     }
@@ -136,30 +119,95 @@ where
 /// Represents an integer between `-2^63` and `2^63-1` inclusive.
 ///
 /// The values are encoded using eight bytes in network byte order (big-endian).
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
-#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
-pub struct Int64(pub i64);
-
-impl<R> ReadType<R> for Int64
+impl<R> ReadType<R> for i64
 where
     R: Read,
 {
     fn read(reader: &mut R) -> Result<Self, ReadError> {
         let mut buf = [0u8; 8];
         reader.read_exact(&mut buf)?;
-        Ok(Self(i64::from_be_bytes(buf)))
+        Ok(i64::from_be_bytes(buf))
     }
 }
 
-impl<W> WriteType<W> for Int64
+impl<W> WriteType<W> for i64
 where
     W: Write,
 {
     fn write(&self, writer: &mut W) -> Result<(), WriteError> {
-        let buf = self.0.to_be_bytes();
+        let buf = self.to_be_bytes();
         writer.write_all(&buf)?;
         Ok(())
     }
+}
+
+fn read_unsigned_varint<R: Read>(reader: &mut R) -> Result<u64, ReadError> {
+    let mut result = 0u64;
+    let mut shift = 0;
+    let mut buf = [0u8; 1];
+
+    let mut success = false;
+    // 10 is the max size of zig-zag encoded data.
+    for i in 0..10 {
+        if reader.read(&mut buf)? == 0 {
+            if i == 0 {
+                return Err(ReadError::IO(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "Reached EOF",
+                )));
+            }
+
+            break;
+        }
+
+        let b = buf[0];
+        let msb_dropped = b & 0b0111_1111;
+        result |= (msb_dropped as u64) << shift;
+        shift += 7;
+
+        if b & 0b1000_0000 == 0 || shift > (9 * 7) {
+            success = b & 0b1000_0000 == 0;
+            break;
+        }
+    }
+
+    if success {
+        Ok(result)
+    } else {
+        Err(ReadError::IO(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Unterminated varint",
+        )))
+    }
+}
+
+fn write_unsigned_varint<W: Write>(writer: &mut W, mut value: u64) -> Result<(), WriteError> {
+    let mut buf = [0u8; 10];
+
+    for pos in 0..10 {
+        if value < 0x80 {
+            buf[pos] = value as u8;
+            return writer
+                .write_all(&buf[..pos + 1])
+                .map_err(|err| WriteError::IO(err));
+        } else {
+            buf[pos] = ((value & 0x7F) | 0x80) as u8;
+            value >>= 7;
+        }
+    }
+
+    Ok(())
+}
+
+#[inline]
+fn read_varint<R: Read>(reader: &mut R) -> Result<i64, ReadError> {
+    let res = read_unsigned_varint(reader)?;
+    Ok(((res >> 1) ^ (-((res & 1) as i64)) as u64) as i64)
+}
+
+#[inline]
+fn write_varint<W: Write>(writer: &mut W, value: i64) -> Result<(), WriteError> {
+    write_unsigned_varint(writer, ((value << 1) ^ (value >> 63)) as u64)
 }
 
 /// Represents an integer between `-2^31` and `2^31-1` inclusive.
@@ -174,10 +222,8 @@ where
     R: Read,
 {
     fn read(reader: &mut R) -> Result<Self, ReadError> {
-        // workaround for https://github.com/dermesser/integer-encoding-rs/issues/21
-        // read 64bit and use a checked downcast instead
-        let i: i64 = reader.read_varint()?;
-        Ok(Self(i32::try_from(i)?))
+        let value = read_varint(reader)?;
+        Ok(Self(i32::try_from(value)?))
     }
 }
 
@@ -186,8 +232,7 @@ where
     W: Write,
 {
     fn write(&self, writer: &mut W) -> Result<(), WriteError> {
-        writer.write_varint(self.0)?;
-        Ok(())
+        write_varint(writer, self.0 as i64)
     }
 }
 
@@ -203,7 +248,8 @@ where
     R: Read,
 {
     fn read(reader: &mut R) -> Result<Self, ReadError> {
-        Ok(Self(reader.read_varint()?))
+        let value = read_varint(reader)?;
+        Ok(Self(value))
     }
 }
 
@@ -212,8 +258,7 @@ where
     W: Write,
 {
     fn write(&self, writer: &mut W) -> Result<(), WriteError> {
-        writer.write_varint(self.0)?;
-        Ok(())
+        write_varint(writer, self.0)
     }
 }
 
@@ -231,27 +276,8 @@ where
     R: Read,
 {
     fn read(reader: &mut R) -> Result<Self, ReadError> {
-        let mut buf = [0u8; 1];
-        let mut res: u64 = 0;
-        let mut shift = 0;
-        loop {
-            reader.read_exact(&mut buf)?;
-            let c: u64 = buf[0].into();
-
-            res |= (c & 0x7f) << shift;
-            shift += 7;
-
-            if (c & 0x80) == 0 {
-                break;
-            }
-            if shift > 63 {
-                return Err(ReadError::Malformed(
-                    String::from("Overflow while reading unsigned varint").into(),
-                ));
-            }
-        }
-
-        Ok(Self(res))
+        let value = read_unsigned_varint(reader)?;
+        Ok(Self(value))
     }
 }
 
@@ -260,68 +286,7 @@ where
     W: Write,
 {
     fn write(&self, writer: &mut W) -> Result<(), WriteError> {
-        let mut curr = self.0;
-        loop {
-            let mut c = u8::try_from(curr & 0x7f).map_err(WriteError::Overflow)?;
-            curr >>= 7;
-            if curr > 0 {
-                c |= 0x80;
-            }
-            writer.write_all(&[c])?;
-
-            if curr == 0 {
-                break;
-            }
-        }
-        Ok(())
-    }
-}
-
-/// Represents a sequence of characters or null.
-///
-/// For non-null strings, first the length N is given as an INT16. Then N bytes follow which are the UTF-8 encoding of
-/// the character sequence. A null value is encoded with length of -1 and there are no following bytes.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Clone)]
-#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
-pub struct NullableString(pub Option<String>);
-
-impl<R> ReadType<R> for NullableString
-where
-    R: Read,
-{
-    fn read(reader: &mut R) -> Result<Self, ReadError> {
-        let len = Int16::read(reader)?;
-        match len.0 {
-            l if l < -1 => Err(ReadError::Malformed(
-                format!("Invalid negative length for nullable string: {}", l).into(),
-            )),
-            -1 => Ok(Self(None)),
-            l => {
-                let len = usize::try_from(l)?;
-                let mut buf = VecBuilder::new(len);
-                buf = buf.read_exact(reader)?;
-                let s =
-                    String::from_utf8(buf.into()).map_err(|e| ReadError::Malformed(Box::new(e)))?;
-                Ok(Self(Some(s)))
-            }
-        }
-    }
-}
-
-impl<W> WriteType<W> for NullableString
-where
-    W: Write,
-{
-    fn write(&self, writer: &mut W) -> Result<(), WriteError> {
-        match &self.0 {
-            Some(s) => {
-                let l = i16::try_from(s.len()).map_err(|e| WriteError::Malformed(Box::new(e)))?;
-                Int16(l).write(writer)?;
-                writer.write_all(s.as_bytes())?;
-                Ok(())
-            }
-            None => Int16(-1).write(writer),
-        }
+        write_unsigned_varint(writer, self.0)
     }
 }
 
@@ -329,182 +294,186 @@ where
 ///
 /// First the length N is given as an INT16. Then N bytes follow which are the UTF-8 encoding of the character
 /// sequence. Length must not be negative.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
-#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
-pub struct String_(pub String);
-
-impl<R> ReadType<R> for String_
+impl<R> ReadType<R> for String
 where
     R: Read,
 {
     fn read(reader: &mut R) -> Result<Self, ReadError> {
-        let len = Int16::read(reader)?;
-        let len = usize::try_from(len.0).map_err(|e| ReadError::Malformed(Box::new(e)))?;
+        let len = i16::read(reader)?;
+        let len = usize::try_from(len).map_err(|e| ReadError::Malformed(Box::new(e)))?;
         let mut buf = VecBuilder::new(len);
         buf = buf.read_exact(reader)?;
-        let s = String::from_utf8(buf.into()).map_err(|e| ReadError::Malformed(Box::new(e)))?;
-        Ok(Self(s))
+        String::from_utf8(buf.into()).map_err(|e| ReadError::Malformed(Box::new(e)))
     }
 }
 
-impl<W> WriteType<W> for String_
-where
-    W: Write,
-{
-    fn write(&self, writer: &mut W) -> Result<(), WriteError> {
-        let len = i16::try_from(self.0.len()).map_err(WriteError::Overflow)?;
-        Int16(len).write(writer)?;
-        writer.write_all(self.0.as_bytes())?;
-        Ok(())
-    }
-}
-
-/// Represents a string whose length is expressed as a variable-length integer rather than a fixed 2-byte length.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
-pub struct CompactString(pub String);
-
-impl<R> ReadType<R> for CompactString
+/// Implement for COMPACT_STRING
+impl<R> ReadCompactType<R> for String
 where
     R: Read,
 {
-    fn read(reader: &mut R) -> Result<Self, ReadError> {
+    fn read_compact(reader: &mut R) -> Result<Self, ReadError> {
         let len = UnsignedVarint::read(reader)?;
+
         match len.0 {
             0 => Err(ReadError::Malformed(
-                "CompactString must have non-zero length".into(),
+                "COMPACT_STRING must have non-zero length".into(),
             )),
             len => {
-                let len = usize::try_from(len)?;
-                let len = len - 1;
+                let len = usize::try_from(len)? - 1;
 
                 let mut buf = VecBuilder::new(len);
                 buf = buf.read_exact(reader)?;
 
-                let s =
-                    String::from_utf8(buf.into()).map_err(|e| ReadError::Malformed(Box::new(e)))?;
-                Ok(Self(s))
+                String::from_utf8(buf.into()).map_err(|err| ReadError::Malformed(Box::new(err)))
             }
         }
     }
 }
 
-impl<W> WriteType<W> for CompactString
+impl<W> WriteType<W> for String
 where
     W: Write,
 {
     fn write(&self, writer: &mut W) -> Result<(), WriteError> {
-        CompactStringRef(&self.0).write(writer)
-    }
-}
-
-/// Same as [`CompactString`] but contains referenced data.
-///
-/// This only supports writing.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct CompactStringRef<'a>(pub &'a str);
-
-impl<'a, W> WriteType<W> for CompactStringRef<'a>
-where
-    W: Write,
-{
-    fn write(&self, writer: &mut W) -> Result<(), WriteError> {
-        let len = u64::try_from(self.0.len() + 1).map_err(WriteError::Overflow)?;
-        UnsignedVarint(len).write(writer)?;
-        writer.write_all(self.0.as_bytes())?;
+        let len = i16::try_from(self.len()).map_err(WriteError::Overflow)?;
+        len.write(writer)?;
+        writer.write_all(self.as_bytes())?;
         Ok(())
     }
 }
 
-/// Represents a nullable string whose length is expressed as a variable-length integer rather than a fixed 2-byte length.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
-pub struct CompactNullableString(pub Option<String>);
+impl<W: Write> WriteCompactType<W> for String {
+    fn write_compact(&self, writer: &mut W) -> Result<(), WriteError> {
+        let len = u64::try_from(self.len() + 1)?;
+        UnsignedVarint(len).write(writer)?;
+        writer.write_all(self.as_bytes())?;
+        Ok(())
+    }
+}
 
-impl<R> ReadType<R> for CompactNullableString
+/// This looks like kind of unnecessary, but it could avoid allocations.
+impl<W: Write> WriteType<W> for &str {
+    fn write(&self, writer: &mut W) -> Result<(), WriteError> {
+        let len = i16::try_from(self.len()).map_err(WriteError::Overflow)?;
+        len.write(writer)?;
+        writer.write_all(self.as_bytes())?;
+        Ok(())
+    }
+}
+
+/// COMPACT_NULLABLE_STRING
+impl<R: Read> ReadCompactType<R> for Option<String> {
+    fn read_compact(reader: &mut R) -> Result<Self, ReadError> {
+        let len = UnsignedVarint::read(reader)?;
+
+        match len.0 {
+            0 => Ok(None),
+            len => {
+                let len = usize::try_from(len)? - 1;
+
+                let mut buf = VecBuilder::new(len);
+                buf = buf.read_exact(reader)?;
+
+                let s = String::from_utf8(buf.into())
+                    .map_err(|err| ReadError::Malformed(Box::new(err)))?;
+
+                Ok(Some(s))
+            }
+        }
+    }
+}
+
+/// NULLABLE_STRING
+impl<R> ReadType<R> for Option<String>
 where
     R: Read,
 {
     fn read(reader: &mut R) -> Result<Self, ReadError> {
-        let len = UnsignedVarint::read(reader)?;
-        match len.0 {
-            0 => Ok(Self(None)),
-            len => {
-                let len = usize::try_from(len)?;
-                let len = len - 1;
-
+        let len = i16::read(reader)?;
+        match len {
+            l if l < -1 => Err(ReadError::Malformed(
+                format!("Invalid negative length for nullable string: {}", l).into(),
+            )),
+            -1 => Ok(None),
+            l => {
+                let len = usize::try_from(l)?;
                 let mut buf = VecBuilder::new(len);
                 buf = buf.read_exact(reader)?;
-
                 let s =
                     String::from_utf8(buf.into()).map_err(|e| ReadError::Malformed(Box::new(e)))?;
-                Ok(Self(Some(s)))
+                Ok(Some(s))
             }
         }
     }
 }
 
-impl<W> WriteType<W> for CompactNullableString
+/// NULLABLE_STRING
+impl<W> WriteType<W> for Option<String>
 where
     W: Write,
 {
     fn write(&self, writer: &mut W) -> Result<(), WriteError> {
-        CompactNullableStringRef(self.0.as_deref()).write(writer)
+        match self {
+            Some(s) => s.write(writer),
+            None => (-1i16).write(writer),
+        }
     }
 }
 
-/// Same as [`CompactNullableString`] but contains referenced data.
-///
-/// This only supports writing.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct CompactNullableStringRef<'a>(pub Option<&'a str>);
-
-impl<'a, W> WriteType<W> for CompactNullableStringRef<'a>
+/// This looks like kind of unnecessary, but it could avoid allocations.
+impl<W> WriteType<W> for Option<&str>
 where
     W: Write,
 {
     fn write(&self, writer: &mut W) -> Result<(), WriteError> {
-        match &self.0 {
+        match self {
+            Some(s) => s.write(writer),
+            None => (-1i16).write(writer),
+        }
+    }
+}
+
+impl<W> WriteCompactType<W> for Option<String>
+where
+    W: Write,
+{
+    fn write_compact(&self, writer: &mut W) -> Result<(), WriteError> {
+        match self {
             Some(s) => {
-                let len = u64::try_from(s.len() + 1).map_err(WriteError::Overflow)?;
+                let len = u64::try_from(s.len() + 1)?;
                 UnsignedVarint(len).write(writer)?;
-                writer.write_all(s.as_bytes())?;
+                writer.write_all(s.as_bytes()).map_err(WriteError::IO)
             }
-            None => {
-                UnsignedVarint(0).write(writer)?;
-            }
+            None => UnsignedVarint(0).write(writer),
         }
-        Ok(())
     }
 }
 
 /// Represents a raw sequence of bytes.
 ///
 /// First the length N is given as an INT32. Then N bytes follow.
-#[derive(Debug, Eq, PartialEq)]
-#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
-pub struct Bytes(pub Vec<u8>);
-impl<R> ReadType<R> for Bytes
+impl<R> ReadType<R> for Vec<u8>
 where
     R: Read,
 {
     fn read(reader: &mut R) -> Result<Self, ReadError> {
-        let len = Int32::read(reader)?;
-        let len = usize::try_from(len.0)?;
+        let len = i32::read(reader)?;
+        let len = usize::try_from(len)?;
         let mut buf = VecBuilder::new(len);
         buf = buf.read_exact(reader)?;
-        Ok(Self(buf.into()))
+        Ok(buf.into())
     }
 }
 
-impl<W> WriteType<W> for Bytes
+impl<W> WriteType<W> for Vec<u8>
 where
     W: Write,
 {
     fn write(&self, writer: &mut W) -> Result<(), WriteError> {
-        let l = i32::try_from(self.0.len()).map_err(|e| WriteError::Malformed(Box::new(e)))?;
-        Int32(l).write(writer)?;
-        writer.write_all(&self.0)?;
+        let len = i32::try_from(self.len()).map_err(|e| WriteError::Malformed(Box::new(e)))?;
+        len.write(writer)?;
+        writer.write_all(&self)?;
         Ok(())
     }
 }
@@ -512,92 +481,69 @@ where
 /// Represents a raw sequence of bytes.
 ///
 /// First the length N+1 is given as an UNSIGNED_VARINT.Then N bytes follow.
-#[derive(Debug, Eq, PartialEq)]
-#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
-pub struct CompactBytes(pub Vec<u8>);
-impl<R> ReadType<R> for CompactBytes
+impl<R> ReadCompactType<R> for Vec<u8>
 where
     R: Read,
 {
-    fn read(reader: &mut R) -> Result<Self, ReadError> {
+    fn read_compact(reader: &mut R) -> Result<Self, ReadError> {
         let len = UnsignedVarint::read(reader)?;
-        let len = usize::try_from(len.0)?;
-        let len = len - 1;
+        let len = usize::try_from(len.0)? - 1;
         let mut buf = VecBuilder::new(len);
         buf = buf.read_exact(reader)?;
-        Ok(Self(buf.into()))
+        Ok(buf.into())
     }
 }
 
-impl<W> WriteType<W> for CompactBytes
+impl<W> WriteCompactType<W> for Vec<u8>
 where
     W: Write,
 {
-    fn write(&self, writer: &mut W) -> Result<(), WriteError> {
-        CompactBytesRef(&self.0).write(writer)
-    }
-}
-
-/// Same as [`CompactBytes`] but contains referenced data.
-///
-/// This only supports writing.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct CompactBytesRef<'a>(pub &'a [u8]);
-
-impl<'a, W> WriteType<W> for CompactBytesRef<'a>
-where
-    W: Write,
-{
-    fn write(&self, writer: &mut W) -> Result<(), WriteError> {
-        let len = u64::try_from(self.0.len() + 1).map_err(WriteError::Overflow)?;
+    fn write_compact(&self, writer: &mut W) -> Result<(), WriteError> {
+        let len = u64::try_from(self.len() + 1).map_err(WriteError::Overflow)?;
         UnsignedVarint(len).write(writer)?;
-        writer.write_all(self.0)?;
+        writer.write_all(self)?;
         Ok(())
     }
 }
 
-/// Represents a raw sequence of bytes or null.
+/// Represents a raw sequence of bytes or null, aka NULLABLE_BYTES
 ///
 /// For non-null values, first the length N is given as an INT32. Then N bytes follow. A null value is encoded with
 /// length of -1 and there are no following bytes.
-#[derive(Debug, PartialEq, Eq)]
-#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
-pub struct NullableBytes(pub Option<Vec<u8>>);
-
-impl<R> ReadType<R> for NullableBytes
+impl<R> ReadType<R> for Option<Vec<u8>>
 where
     R: Read,
 {
     fn read(reader: &mut R) -> Result<Self, ReadError> {
-        let len = Int32::read(reader)?;
-        match len.0 {
+        let len = i32::read(reader)?;
+        match len {
             l if l < -1 => Err(ReadError::Malformed(
                 format!("Invalid negative length for nullable bytes: {}", l).into(),
             )),
-            -1 => Ok(Self(None)),
+            -1 => Ok(None),
             l => {
                 let len = usize::try_from(l)?;
                 let mut buf = VecBuilder::new(len);
                 buf = buf.read_exact(reader)?;
-                Ok(Self(Some(buf.into())))
+                Ok(Some(buf.into()))
             }
         }
     }
 }
 
-impl<W> WriteType<W> for NullableBytes
+impl<W> WriteType<W> for Option<Vec<u8>>
 where
     W: Write,
 {
     fn write(&self, writer: &mut W) -> Result<(), WriteError> {
-        match &self.0 {
+        match &self {
             Some(s) => {
-                let l = i32::try_from(s.len()).map_err(|e| WriteError::Malformed(Box::new(e)))?;
-                Int32(l).write(writer)?;
+                let len = i32::try_from(s.len()).map_err(|e| WriteError::Malformed(Box::new(e)))?;
+                len.write(writer)?;
                 writer.write_all(s)?;
                 Ok(())
             }
-            None => Int32(-1).write(writer),
+            None => (-1i32).write(writer),
         }
     }
 }
@@ -648,138 +594,188 @@ where
     }
 }
 
-/// Represents a sequence of objects of a given type T.
-///
-/// Type T can be either a primitive type (e.g. STRING) or a structure. First, the length N is given as an INT32. Then
-/// N instances of type T follow. A null array is represented with a length of -1. In protocol documentation an array
-/// of T instances is referred to as `[T]`.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
-#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
-pub struct Array<T>(pub Option<Vec<T>>);
+impl<W: Write> WriteType<W> for Option<TaggedFields> {
+    fn write(&self, writer: &mut W) -> Result<(), WriteError> {
+        match self {
+            Some(tagged_fields) => tagged_fields.write(writer),
+            None => {
+                // just write a zero
+                writer.write_all(&[0u8]).map_err(WriteError::from)
+            }
+        }
+    }
+}
 
-impl<R, T> ReadType<R> for Array<T>
+impl<R> ReadType<R> for Vec<i32>
 where
     R: Read,
-    T: ReadType<R>,
 {
     fn read(reader: &mut R) -> Result<Self, ReadError> {
-        let len = Int32::read(reader)?;
-        if len.0 == -1 {
-            Ok(Self(None))
+        let len = i32::read(reader)?;
+        if len == -1 {
+            Ok(vec![])
         } else {
-            let len = usize::try_from(len.0)?;
+            let len = usize::try_from(len)?;
             let mut res = VecBuilder::new(len);
             for _ in 0..len {
-                res.push(T::read(reader)?);
+                res.push(i32::read(reader)?);
             }
-            Ok(Self(Some(res.into())))
+
+            Ok(res.into())
         }
     }
 }
 
-impl<W, T> WriteType<W> for Array<T>
+impl<W> WriteType<W> for Vec<i32>
 where
     W: Write,
-    T: WriteType<W>,
 {
     fn write(&self, writer: &mut W) -> Result<(), WriteError> {
-        ArrayRef(self.0.as_deref()).write(writer)
-    }
-}
+        let len = self.len();
+        if len == 0 {
+            (-1i32).write(writer)
+        } else {
+            let len = i32::try_from(len)?;
+            len.write(writer)?;
 
-/// Same as [`Array`] but contains referenced data.
-///
-/// This only supports writing.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ArrayRef<'a, T>(pub Option<&'a [T]>);
-
-impl<'a, W, T> WriteType<W> for ArrayRef<'a, T>
-where
-    W: Write,
-    T: WriteType<W>,
-{
-    fn write(&self, writer: &mut W) -> Result<(), WriteError> {
-        match self.0 {
-            None => Int32(-1).write(writer),
-            Some(inner) => {
-                let len = i32::try_from(inner.len())?;
-                Int32(len).write(writer)?;
-
-                for element in inner {
-                    element.write(writer)?;
-                }
-
-                Ok(())
+            for item in self {
+                item.write(writer)?;
             }
+
+            Ok(())
         }
     }
 }
 
-/// Represents a sequence of objects of a given type T.
-///
-/// Type T can be either a primitive type (e.g. STRING) or a structure. First, the length N + 1 is given as an
-/// UNSIGNED_VARINT. Then N instances of type T follow. A null array is represented with a length of 0. In protocol
-/// documentation an array of T instances is referred to as `[T]`.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
-pub struct CompactArray<T>(pub Option<Vec<T>>);
-
-impl<R, T> ReadType<R> for CompactArray<T>
+impl<R> ReadCompactType<R> for Vec<i32>
 where
     R: Read,
-    T: ReadType<R>,
+{
+    fn read_compact(reader: &mut R) -> Result<Self, ReadError> {
+        let len = UnsignedVarint::read(reader)?.0;
+        if len == 0 {
+            Ok(vec![])
+        } else {
+            let len = usize::try_from(len - 1).map_err(ReadError::Overflow)?;
+            let mut builder = VecBuilder::new(len);
+            for _ in 0..len {
+                builder.push(i32::read(reader)?);
+            }
+
+            Ok(builder.into())
+        }
+    }
+}
+
+impl<W> WriteCompactType<W> for Vec<i32>
+where
+    W: Write,
+{
+    fn write_compact(&self, writer: &mut W) -> Result<(), WriteError> {
+        let len = self.len();
+        if len == 0 {
+            UnsignedVarint(0).write(writer)
+        } else {
+            let len = u64::try_from(len + 1)?;
+            UnsignedVarint(len).write(writer)?;
+
+            for item in self {
+                item.write(writer)?;
+            }
+
+            Ok(())
+        }
+    }
+}
+
+impl<R> ReadType<R> for Vec<i64>
+where
+    R: Read,
 {
     fn read(reader: &mut R) -> Result<Self, ReadError> {
+        let len = i32::read(reader)?;
+        if len == -1 {
+            Ok(vec![])
+        } else {
+            let len = usize::try_from(len)?;
+            let mut res = VecBuilder::new(len);
+            for _ in 0..len {
+                res.push(i64::read(reader)?);
+            }
+
+            Ok(res.into())
+        }
+    }
+}
+
+impl<R> ReadType<R> for Vec<String>
+where
+    R: Read,
+{
+    fn read(reader: &mut R) -> Result<Self, ReadError> {
+        let len = i32::read(reader)?;
+        if len == -1 {
+            Ok(vec![])
+        } else {
+            let len = usize::try_from(len)?;
+            let mut res = VecBuilder::new(len);
+            for _ in 0..len {
+                res.push(String::read(reader)?);
+            }
+            Ok(res.into())
+        }
+    }
+}
+
+impl<W> WriteType<W> for Vec<String>
+where
+    W: Write,
+{
+    fn write(&self, writer: &mut W) -> Result<(), WriteError> {
+        let len = i32::try_from(self.len())?;
+        len.write(writer)?;
+
+        for item in self {
+            item.write(writer)?;
+        }
+
+        Ok(())
+    }
+}
+
+impl<R> ReadCompactType<R> for Vec<String>
+where
+    R: Read,
+{
+    fn read_compact(reader: &mut R) -> Result<Self, ReadError> {
         let len = UnsignedVarint::read(reader)?.0;
-        match len {
-            0 => Ok(Self(None)),
-            n => {
-                let len = usize::try_from(n - 1).map_err(ReadError::Overflow)?;
-                let mut builder = VecBuilder::new(len);
-                for _ in 0..len {
-                    builder.push(T::read(reader)?);
-                }
-                Ok(Self(Some(builder.into())))
+        if len == 0 {
+            Ok(vec![])
+        } else {
+            let len = usize::try_from(len - 1).map_err(ReadError::Overflow)?;
+            let mut builder = VecBuilder::new(len);
+            for _ in 0..len {
+                builder.push(String::read_compact(reader)?);
             }
+
+            Ok(builder.into())
         }
     }
 }
 
-impl<W, T> WriteType<W> for CompactArray<T>
+impl<W> WriteCompactType<W> for Vec<String>
 where
     W: Write,
-    T: WriteType<W>,
 {
-    fn write(&self, writer: &mut W) -> Result<(), WriteError> {
-        CompactArrayRef(self.0.as_deref()).write(writer)
-    }
-}
+    fn write_compact(&self, writer: &mut W) -> Result<(), WriteError> {
+        let len = u64::try_from(self.len() + 1).map_err(WriteError::Overflow)?;
+        UnsignedVarint(len).write(writer)?;
 
-/// Same as [`CompactArray`] but contains referenced data.
-///
-/// This only supports writing.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct CompactArrayRef<'a, T>(pub Option<&'a [T]>);
-
-impl<'a, W, T> WriteType<W> for CompactArrayRef<'a, T>
-where
-    W: Write,
-    T: WriteType<W>,
-{
-    fn write(&self, writer: &mut W) -> Result<(), WriteError> {
-        match self.0 {
-            None => UnsignedVarint(0).write(writer),
-            Some(inner) => {
-                let len = u64::try_from(inner.len() + 1).map_err(WriteError::from)?;
-                UnsignedVarint(len).write(writer)?;
-
-                for element in inner {
-                    element.write(writer)?;
-                }
-
-                Ok(())
-            }
+        for item in self {
+            item.write_compact(writer)?;
         }
+
+        Ok(())
     }
 }
 
@@ -812,7 +808,7 @@ where
     R: Read,
 {
     fn read(reader: &mut R) -> Result<Self, ReadError> {
-        let buf = NullableBytes::read(reader)?.0.unwrap_or_default();
+        let buf = Option::<Vec<u8>>::read(reader)?.unwrap_or_default();
         let len = u64::try_from(buf.len())?;
         let mut buf = Cursor::new(buf);
 
@@ -828,6 +824,7 @@ where
                     return Err(e);
                 }
             };
+
             batches.push(batch);
         }
 
@@ -845,7 +842,7 @@ where
         for record in &self.0 {
             record.write(&mut buf)?;
         }
-        NullableBytes(Some(buf)).write(writer)?;
+        Some(buf).write(writer)?;
         Ok(())
     }
 }
@@ -861,27 +858,60 @@ mod tests {
 
     use super::*;
 
+    use crate::protocol::test_utils::test_compact_roundtrip;
     use assert_matches::assert_matches;
 
-    test_roundtrip!(Boolean, test_bool_roundtrip);
-
     #[test]
-    fn test_boolean_decode() {
-        assert!(!Boolean::read(&mut Cursor::new(vec![0])).unwrap().0);
+    fn varint() {
+        for (num, data) in [
+            (0, &[0u8].as_ref()),
+            (1, &[0x2].as_ref()),
+            (-1, &[0x1].as_ref()),
+            (23, &[0x2e].as_ref()),
+            (-23, &[0x2d].as_ref()),
+            (253, &[0xfa, 3].as_ref()),
+            (
+                1234567890101112,
+                &[0xf0, 0x8d, 0xd3, 0xc8, 0xa7, 0xb5, 0xb1, 0x04].as_ref(),
+            ),
+            (
+                -1234567890101112,
+                &[0xef, 0x8d, 0xd3, 0xc8, 0xa7, 0xb5, 0xb1, 0x04].as_ref(),
+            ),
+        ] {
+            // decode
+            let mut cursor = Cursor::new(data);
+            let got = read_varint(&mut cursor).unwrap();
+            assert_eq!(got, num);
 
-        // When reading a boolean value, any non-zero value is considered true.
-        for v in [1, 35, 255] {
-            assert!(Boolean::read(&mut Cursor::new(vec![v])).unwrap().0);
+            // encode
+            let mut cursor = Cursor::new([0u8; 16]);
+            write_varint(&mut cursor, got).unwrap();
+            let len = cursor.position() as usize;
+            assert_eq!(len, data.len());
+            assert_eq!(&cursor.get_ref()[..len], data.as_ref());
         }
     }
 
-    test_roundtrip!(Int8, test_int8_roundtrip);
+    test_roundtrip!(bool, test_bool_roundtrip);
 
-    test_roundtrip!(Int16, test_int16_roundtrip);
+    #[test]
+    fn test_boolean_decode() {
+        assert!(!bool::read(&mut Cursor::new(vec![0])).unwrap());
 
-    test_roundtrip!(Int32, test_int32_roundtrip);
+        // When reading a boolean value, any non-zero value is considered true.
+        for v in [1, 35, 255] {
+            assert!(bool::read(&mut Cursor::new(vec![v])).unwrap());
+        }
+    }
 
-    test_roundtrip!(Int64, test_int64_roundtrip);
+    test_roundtrip!(i8, test_int8_roundtrip);
+
+    test_roundtrip!(i16, test_int16_roundtrip);
+
+    test_roundtrip!(i32, test_int32_roundtrip);
+
+    test_roundtrip!(i64, test_int64_roundtrip);
 
     test_roundtrip!(Varint, test_varint_roundtrip);
 
@@ -952,34 +982,34 @@ mod tests {
         let mut buf = Cursor::new(vec![0xffu8; 64 / 7 + 1]);
 
         let err = UnsignedVarint::read(&mut buf).unwrap_err();
-        assert_matches!(err, ReadError::Malformed(_));
-        assert_eq!(
-            err.to_string(),
-            "Malformed data: Overflow while reading unsigned varint",
-        );
+        assert_matches!(err, ReadError::IO(_));
+        assert_eq!(err.to_string(), "Cannot read data: Unterminated varint",);
     }
 
-    test_roundtrip!(String_, test_string_roundtrip);
+    test_roundtrip!(String, test_string_roundtrip);
+
+    test_roundtrip!(Vec<i32>, test_i32_array_roundtrip);
+    test_compact_roundtrip!(Vec<i32>, i32_compact_array_roundtrip);
 
     #[test]
     fn test_string_blowup_memory() {
         let mut buf = Cursor::new(Vec::<u8>::new());
-        Int16(i16::MAX).write(&mut buf).unwrap();
+        i16::MAX.write(&mut buf).unwrap();
         buf.set_position(0);
 
-        let err = String_::read(&mut buf).unwrap_err();
+        let err = String::read(&mut buf).unwrap_err();
         assert_matches!(err, ReadError::IO(_));
     }
 
-    test_roundtrip!(NullableString, test_nullable_string_roundtrip);
+    test_roundtrip!(Option<String>, test_nullable_string_roundtrip);
 
     #[test]
     fn test_nullable_string_read_negative_length() {
         let mut buf = Cursor::new(Vec::<u8>::new());
-        Int16(-2).write(&mut buf).unwrap();
+        (-2i16).write(&mut buf).unwrap();
         buf.set_position(0);
 
-        let err = NullableString::read(&mut buf).unwrap_err();
+        let err = Option::<String>::read(&mut buf).unwrap_err();
         assert_matches!(err, ReadError::Malformed(_));
         assert_eq!(
             err.to_string(),
@@ -990,14 +1020,14 @@ mod tests {
     #[test]
     fn test_nullable_string_blowup_memory() {
         let mut buf = Cursor::new(Vec::<u8>::new());
-        Int16(i16::MAX).write(&mut buf).unwrap();
+        i16::MAX.write(&mut buf).unwrap();
         buf.set_position(0);
 
-        let err = NullableString::read(&mut buf).unwrap_err();
+        let err = Option::<String>::read(&mut buf).unwrap_err();
         assert_matches!(err, ReadError::IO(_));
     }
 
-    test_roundtrip!(CompactString, test_compact_string_roundtrip);
+    test_compact_roundtrip!(String, test_compact_string_roundtrip);
 
     #[test]
     fn test_compact_string_blowup_memory() {
@@ -1005,14 +1035,11 @@ mod tests {
         UnsignedVarint(u64::MAX).write(&mut buf).unwrap();
         buf.set_position(0);
 
-        let err = CompactString::read(&mut buf).unwrap_err();
+        let err = String::read_compact(&mut buf).unwrap_err();
         assert_matches!(err, ReadError::IO(_));
     }
 
-    test_roundtrip!(
-        CompactNullableString,
-        test_compact_nullable_string_roundtrip
-    );
+    test_compact_roundtrip!(Option<String>, test_compact_nullable_string_roundtrip);
 
     #[test]
     fn test_compact_nullable_string_blowup_memory() {
@@ -1020,23 +1047,21 @@ mod tests {
         UnsignedVarint(u64::MAX).write(&mut buf).unwrap();
         buf.set_position(0);
 
-        let err = CompactNullableString::read(&mut buf).unwrap_err();
+        let err = Option::<String>::read_compact(&mut buf).unwrap_err();
         assert_matches!(err, ReadError::IO(_));
     }
 
-    test_roundtrip!(Bytes, test_bytes_roundtrip);
+    test_roundtrip!(Vec<u8>, test_bytes_roundtrip);
 
-    test_roundtrip!(CompactBytes, test_compact_bytes_roundtrip);
-
-    test_roundtrip!(NullableBytes, test_nullable_bytes_roundtrip);
+    test_roundtrip!(Option<Vec<u8>>, test_nullable_bytes_roundtrip);
 
     #[test]
     fn test_nullable_bytes_read_negative_length() {
         let mut buf = Cursor::new(Vec::<u8>::new());
-        Int32(-2).write(&mut buf).unwrap();
+        (-2i32).write(&mut buf).unwrap();
         buf.set_position(0);
 
-        let err = NullableBytes::read(&mut buf).unwrap_err();
+        let err = Option::<Vec<u8>>::read(&mut buf).unwrap_err();
         assert_matches!(err, ReadError::Malformed(_));
         assert_eq!(
             err.to_string(),
@@ -1047,10 +1072,10 @@ mod tests {
     #[test]
     fn test_nullable_bytes_blowup_memory() {
         let mut buf = Cursor::new(Vec::<u8>::new());
-        Int32(i32::MAX).write(&mut buf).unwrap();
+        i32::MAX.write(&mut buf).unwrap();
         buf.set_position(0);
 
-        let err = NullableBytes::read(&mut buf).unwrap_err();
+        let err = Option::<Vec<u8>>::read(&mut buf).unwrap_err();
         assert_matches!(err, ReadError::IO(_));
     }
 
@@ -1075,19 +1100,15 @@ mod tests {
         assert_matches!(err, ReadError::IO(_));
     }
 
-    test_roundtrip!(Array<Int32>, test_array_roundtrip);
-
     #[test]
     fn test_array_blowup_memory() {
         let mut buf = Cursor::new(Vec::<u8>::new());
-        Int32(i32::MAX).write(&mut buf).unwrap();
+        i32::MAX.write(&mut buf).unwrap();
         buf.set_position(0);
 
-        let err = Array::<Large>::read(&mut buf).unwrap_err();
+        let err = Vec::<Large>::read(&mut buf).unwrap_err();
         assert_matches!(err, ReadError::IO(_));
     }
-
-    test_roundtrip!(CompactArray<Int32>, test_compact_array_roundtrip);
 
     #[test]
     fn test_compact_array_blowup_memory() {
@@ -1095,7 +1116,7 @@ mod tests {
         UnsignedVarint(u64::MAX).write(&mut buf).unwrap();
         buf.set_position(0);
 
-        let err = CompactArray::<Large>::read(&mut buf).unwrap_err();
+        let err = Vec::<Large>::read_compact(&mut buf).unwrap_err();
         assert_matches!(err, ReadError::IO(_));
     }
 
@@ -1113,7 +1134,7 @@ mod tests {
         let inner = buf[..buf.len() - 1].to_vec();
 
         let mut buf = vec![];
-        NullableBytes(Some(inner)).write(&mut buf).unwrap();
+        Some(inner).write(&mut buf).unwrap();
 
         let records = Records::read(&mut Cursor::new(buf)).unwrap();
         assert_eq!(records.0, vec![batch_1]);
@@ -1147,8 +1168,48 @@ mod tests {
         R: Read,
     {
         fn read(reader: &mut R) -> Result<Self, ReadError> {
-            Int32::read(reader)?;
+            i32::read(reader)?;
             unreachable!()
+        }
+    }
+
+    impl<R: Read> ReadCompactType<R> for Large {
+        fn read_compact(reader: &mut R) -> Result<Self, ReadError> {
+            i32::read(reader)?;
+            unreachable!()
+        }
+    }
+
+    impl<R: Read> ReadType<R> for Vec<Large> {
+        fn read(reader: &mut R) -> Result<Self, ReadError> {
+            let len = i32::read(reader)?;
+            if len == -1 {
+                Ok(vec![])
+            } else {
+                let len = usize::try_from(len)?;
+                let mut res = VecBuilder::new(len);
+                for _ in 0..len {
+                    res.push(Large::read(reader)?);
+                }
+                Ok(res.into())
+            }
+        }
+    }
+
+    impl<R: Read> ReadCompactType<R> for Vec<Large> {
+        fn read_compact(reader: &mut R) -> Result<Self, ReadError> {
+            let len = UnsignedVarint::read(reader)?.0;
+            if len == 0 {
+                Ok(vec![])
+            } else {
+                let len = usize::try_from(len - 1).map_err(ReadError::Overflow)?;
+                let mut builder = VecBuilder::new(len);
+                for _ in 0..len {
+                    builder.push(Large::read_compact(reader)?);
+                }
+
+                Ok(builder.into())
+            }
         }
     }
 }

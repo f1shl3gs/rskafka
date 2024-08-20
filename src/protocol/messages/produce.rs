@@ -5,7 +5,7 @@ use crate::protocol::{
     api_version::{ApiVersion, ApiVersionRange},
     error::Error,
     messages::{read_versioned_array, write_versioned_array},
-    primitives::{Int16, Int32, Int64, NullableString, Records, String_},
+    primitives::Records,
     traits::{ReadType, WriteType},
 };
 
@@ -16,7 +16,7 @@ use super::{
 #[derive(Debug)]
 pub struct ProduceRequestPartitionData {
     /// The partition index.
-    pub index: Int32,
+    pub index: i32,
 
     /// The record data to be produced.
     pub records: Records,
@@ -31,7 +31,7 @@ where
         writer: &mut W,
         version: ApiVersion,
     ) -> Result<(), WriteVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 7);
 
         self.index.write(writer)?;
@@ -43,7 +43,7 @@ where
 #[derive(Debug)]
 pub struct ProduceRequestTopicData {
     /// The topic name.
-    pub name: String_,
+    pub name: String,
 
     /// Each partition to produce to.
     pub partition_data: Vec<ProduceRequestPartitionData>,
@@ -58,7 +58,7 @@ where
         writer: &mut W,
         version: ApiVersion,
     ) -> Result<(), WriteVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 7);
 
         self.name.write(writer)?;
@@ -73,15 +73,15 @@ pub struct ProduceRequest {
     /// The transactional ID, or null if the producer is not transactional.
     ///
     /// Added in version 3.
-    pub transactional_id: NullableString,
+    pub transactional_id: Option<String>,
 
     /// The number of acknowledgments the producer requires the leader to have received before considering a request complete.
     ///
     /// Allowed values: 0 for no acknowledgments, 1 for only the leader and -1 for the full ISR.
-    pub acks: Int16,
+    pub acks: i16,
 
     /// The timeout to await a response in milliseconds.
-    pub timeout_ms: Int32,
+    pub timeout_ms: i32,
 
     /// Each topic to produce to.
     pub topic_data: Vec<ProduceRequestTopicData>,
@@ -96,7 +96,7 @@ where
         writer: &mut W,
         version: ApiVersion,
     ) -> Result<(), WriteVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 7);
 
         if v >= 3 {
@@ -121,23 +121,22 @@ impl RequestBody for ProduceRequest {
     /// was introduced ([KIP-98]).
     ///
     /// [KIP-98]: https://cwiki.apache.org/confluence/display/KAFKA/KIP-98+-+Exactly+Once+Delivery+and+Transactional+Messaging
-    const API_VERSION_RANGE: ApiVersionRange =
-        ApiVersionRange::new(ApiVersion(Int16(3)), ApiVersion(Int16(7)));
+    const API_VERSION_RANGE: ApiVersionRange = ApiVersionRange::new(3, 7);
 
-    const FIRST_TAGGED_FIELD_IN_REQUEST_VERSION: ApiVersion = ApiVersion(Int16(9));
+    const FIRST_TAGGED_FIELD_IN_REQUEST_VERSION: ApiVersion = ApiVersion(9);
 }
 
 #[derive(Debug)]
 #[allow(missing_copy_implementations)]
 pub struct ProduceResponsePartitionResponse {
     /// The partition index.
-    pub index: Int32,
+    pub index: i32,
 
     /// Error code.
     pub error: Option<Error>,
 
     /// The base offset.
-    pub base_offset: Int64,
+    pub base_offset: i64,
 
     /// The timestamp returned by broker after appending the messages.
     ///
@@ -145,12 +144,12 @@ pub struct ProduceResponsePartitionResponse {
     /// timestamp will be the broker local time when the messages are appended.
     ///
     /// Added in version 2.
-    pub log_append_time_ms: Option<Int64>,
+    pub log_append_time_ms: Option<i64>,
 
     /// The log start offset.
     ///
     /// Added in version 5.
-    pub log_start_offset: Option<Int64>,
+    pub log_start_offset: Option<i64>,
 }
 
 impl<R> ReadVersionedType<R> for ProduceResponsePartitionResponse
@@ -158,15 +157,15 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 7);
 
         Ok(Self {
-            index: Int32::read(reader)?,
-            error: Error::new(Int16::read(reader)?.0),
-            base_offset: Int64::read(reader)?,
-            log_append_time_ms: (v >= 2).then(|| Int64::read(reader)).transpose()?,
-            log_start_offset: (v >= 5).then(|| Int64::read(reader)).transpose()?,
+            index: i32::read(reader)?,
+            error: Error::new(i16::read(reader)?),
+            base_offset: i64::read(reader)?,
+            log_append_time_ms: (v >= 2).then(|| i64::read(reader)).transpose()?,
+            log_start_offset: (v >= 5).then(|| i64::read(reader)).transpose()?,
         })
     }
 }
@@ -174,7 +173,7 @@ where
 #[derive(Debug)]
 pub struct ProduceResponseResponse {
     /// The topic name
-    pub name: String_,
+    pub name: String,
 
     /// Each partition that we produced to within the topic.
     pub partition_responses: Vec<ProduceResponsePartitionResponse>,
@@ -185,11 +184,11 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 7);
 
         Ok(Self {
-            name: String_::read(reader)?,
+            name: String::read(reader)?,
             partition_responses: read_versioned_array(reader, version)?.unwrap_or_default(),
         })
     }
@@ -203,7 +202,7 @@ pub struct ProduceResponse {
     /// The duration in milliseconds for which the request was throttled due to a quota violation, or zero if the request did not violate any quota.
     ///
     /// Added in version 1.
-    pub throttle_time_ms: Option<Int32>,
+    pub throttle_time_ms: Option<i32>,
 }
 
 impl<R> ReadVersionedType<R> for ProduceResponse
@@ -211,12 +210,12 @@ where
     R: Read,
 {
     fn read_versioned(reader: &mut R, version: ApiVersion) -> Result<Self, ReadVersionedError> {
-        let v = version.0 .0;
+        let v = version.0;
         assert!(v <= 7);
 
         Ok(Self {
             responses: read_versioned_array(reader, version)?.unwrap_or_default(),
-            throttle_time_ms: (v >= 1).then(|| Int32::read(reader)).transpose()?,
+            throttle_time_ms: (v >= 1).then(|| i32::read(reader)).transpose()?,
         })
     }
 }

@@ -2,25 +2,23 @@ use std::sync::Arc;
 
 use thiserror::Error;
 
-use crate::{
-    backoff::BackoffConfig,
-    build_info::DEFAULT_CLIENT_ID,
-    client::partition::PartitionClient,
-    connection::{BrokerConnector, MetadataLookupMode, TlsConfig},
-    protocol::primitives::Boolean,
-    topic::Topic,
-};
+use crate::backoff::BackoffConfig;
+use crate::build_info::DEFAULT_CLIENT_ID;
+use crate::client::partition::PartitionClient;
+use crate::connection::{BrokerConnector, MetadataLookupMode, TlsConfig};
+use crate::topic::Topic;
 
 pub mod consumer;
+mod consumer_group;
 pub mod controller;
 pub mod error;
 pub(crate) mod metadata_cache;
 pub mod partition;
 pub mod producer;
 
-use error::{Error, Result};
-
 use self::{controller::ControllerClient, partition::UnknownTopicHandling};
+use crate::client::consumer_group::ConsumerGroup;
+use error::{Error, Result};
 
 pub use crate::connection::SaslConfig;
 
@@ -189,15 +187,19 @@ impl Client {
         Ok(response
             .topics
             .into_iter()
-            .filter(|t| !matches!(t.is_internal, Some(Boolean(true))))
+            .filter(|t| !matches!(t.is_internal, Some(true)))
             .map(|t| Topic {
-                name: t.name.0,
+                name: t.name,
                 partitions: t
                     .partitions
                     .into_iter()
-                    .map(|p| p.partition_index.0)
+                    .map(|p| p.partition_index)
                     .collect(),
             })
             .collect())
+    }
+
+    pub async fn consumer_group(&self, group: String, topics: &[Topic]) -> Result<ConsumerGroup> {
+        ConsumerGroup::new(self.brokers.clone(), group, topics).await
     }
 }

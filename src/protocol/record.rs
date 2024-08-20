@@ -25,7 +25,7 @@ use std::io::{Cursor, Read, Write};
 use proptest::prelude::*;
 
 use super::{
-    primitives::{Int16, Int32, Int64, Int8, Varint, Varlong},
+    primitives::{Varint, Varlong},
     traits::{ReadError, ReadType, WriteError, WriteType},
     vec_builder::VecBuilder,
 };
@@ -108,7 +108,7 @@ where
         let reader = &mut reader.take(len);
 
         // attributes
-        Int8::read(reader)?;
+        i8::read(reader)?;
 
         // timestampDelta
         let timestamp_delta = Varlong::read(reader)?.0;
@@ -176,7 +176,7 @@ where
         let mut data = vec![];
 
         // attributes
-        Int8(0).write(&mut data)?;
+        0i8.write(&mut data)?;
 
         // timestampDelta
         Varlong(self.timestamp_delta).write(&mut data)?;
@@ -247,7 +247,7 @@ where
 {
     fn read(reader: &mut R) -> Result<Self, ReadError> {
         // version
-        let version = Int16::read(reader)?.0;
+        let version = i16::read(reader)?;
         if version != 0 {
             return Err(ReadError::Malformed(
                 format!("Unknown control batch record version: {}", version).into(),
@@ -255,7 +255,7 @@ where
         }
 
         // type
-        let t = Int16::read(reader)?.0;
+        let t = i16::read(reader)?;
         match t {
             0 => Ok(Self::Abort),
             1 => Ok(Self::Commit),
@@ -272,14 +272,14 @@ where
 {
     fn write(&self, writer: &mut W) -> Result<(), WriteError> {
         // version
-        Int16(0).write(writer)?;
+        0i16.write(writer)?;
 
         // type
-        let t = match self {
+        let t: i16 = match self {
             Self::Abort => 0,
             Self::Commit => 1,
         };
-        Int16(t).write(writer)?;
+        t.write(writer)?;
 
         Ok(())
     }
@@ -348,14 +348,14 @@ where
 {
     fn read(reader: &mut R) -> Result<Self, ReadError> {
         // baseOffset
-        let base_offset = Int64::read(reader)?.0;
+        let base_offset = i64::read(reader)?;
 
         // batchLength
         //
         // Contains all fields AFTER the length field (so excluding `baseOffset` and `batchLength`). To determine the
         // size of the CRC-checked part we must substract all sized from this field to and including the CRC field.
-        let len = Int32::read(reader)?;
-        let len = usize::try_from(len.0).map_err(|e| ReadError::Malformed(Box::new(e)))?;
+        let len = i32::read(reader)?;
+        let len = usize::try_from(len).map_err(|e| ReadError::Malformed(Box::new(e)))?;
         let len = len
             .checked_sub(
                 4 // partitionLeaderEpoch
@@ -367,10 +367,10 @@ where
             })?;
 
         // partitionLeaderEpoch
-        let partition_leader_epoch = Int32::read(reader)?.0;
+        let partition_leader_epoch = i32::read(reader)?;
 
         // magic
-        let magic = Int8::read(reader)?.0;
+        let magic = i8::read(reader)?;
         if magic != 2 {
             return Err(ReadError::Malformed(
                 format!("Invalid magic number in record batch: {}", magic).into(),
@@ -378,7 +378,7 @@ where
         }
 
         // crc
-        let crc = Int32::read(reader)?.0;
+        let crc = i32::read(reader)?;
         let crc = u32::from_be_bytes(crc.to_be_bytes());
 
         // data
@@ -454,7 +454,7 @@ where
         // ==========================================================================================
 
         // baseOffset
-        Int64(self.base_offset).write(writer)?;
+        self.base_offset.write(writer)?;
 
         // batchLength
         //
@@ -463,20 +463,20 @@ where
         //
         // See
         // https://github.com/kafka-rust/kafka-rust/blob/657202832806cda77d0a1801d618dc6c382b4d79/src/protocol/produce.rs#L224-L226
-        let l = i32::try_from(
+        let len = i32::try_from(
             data.len()
             + 4 // partitionLeaderEpoch
             + 1 // magic
             + 4, // crc
         )
         .map_err(|e| WriteError::Malformed(Box::new(e)))?;
-        Int32(l).write(writer)?;
+        len.write(writer)?;
 
         // partitionLeaderEpoch
-        Int32(self.partition_leader_epoch).write(writer)?;
+        self.partition_leader_epoch.write(writer)?;
 
         // magic
-        Int8(2).write(writer)?;
+        2i8.write(writer)?;
 
         // crc
         // See
@@ -484,7 +484,7 @@ where
         // WARNING: the range in the code linked above is correct but the polynomial is wrong!
         let crc = crc32c::crc32c(&data);
         let crc = i32::from_be_bytes(crc.to_be_bytes());
-        Int32(crc).write(writer)?;
+        crc.write(writer)?;
 
         // the actual CRC-checked data
         writer.write_all(&data)?;
@@ -543,7 +543,7 @@ where
 {
     fn read(reader: &mut R) -> Result<Self, ReadError> {
         // attributes
-        let attributes = Int16::read(reader)?.0;
+        let attributes = i16::read(reader)?;
         let compression = match attributes & 0x7 {
             0 => RecordBatchCompression::NoCompression,
             1 => RecordBatchCompression::Gzip,
@@ -565,25 +565,25 @@ where
         let is_control = ((attributes >> 5) & 0x1) == 1;
 
         // lastOffsetDelta
-        let last_offset_delta = Int32::read(reader)?.0;
+        let last_offset_delta = i32::read(reader)?;
 
         // firstTimestamp
-        let first_timestamp = Int64::read(reader)?.0;
+        let first_timestamp = i64::read(reader)?;
 
         // maxTimestamp
-        let max_timestamp = Int64::read(reader)?.0;
+        let max_timestamp = i64::read(reader)?;
 
         // producerId
-        let producer_id = Int64::read(reader)?.0;
+        let producer_id = i64::read(reader)?;
 
         // producerEpoch
-        let producer_epoch = Int16::read(reader)?.0;
+        let producer_epoch = i16::read(reader)?;
 
         // baseSequence
-        let base_sequence = Int32::read(reader)?.0;
+        let base_sequence = i32::read(reader)?;
 
         // records
-        let n_records = match Int32::read(reader)?.0 {
+        let n_records = match i32::read(reader)? {
             -1 => 0,
             n => usize::try_from(n)?,
         };
@@ -795,32 +795,32 @@ where
         if matches!(self.records, ControlBatchOrRecords::ControlBatch(_)) {
             attributes |= 1 << 5;
         }
-        Int16(attributes).write(writer)?;
+        attributes.write(writer)?;
 
         // lastOffsetDelta
-        Int32(self.last_offset_delta).write(writer)?;
+        self.last_offset_delta.write(writer)?;
 
         // firstTimestamp
-        Int64(self.first_timestamp).write(writer)?;
+        self.first_timestamp.write(writer)?;
 
         // maxTimestamp
-        Int64(self.max_timestamp).write(writer)?;
+        self.max_timestamp.write(writer)?;
 
         // producerId
-        Int64(self.producer_id).write(writer)?;
+        self.producer_id.write(writer)?;
 
         // producerEpoch
-        Int16(self.producer_epoch).write(writer)?;
+        self.producer_epoch.write(writer)?;
 
         // baseSequence
-        Int32(self.base_sequence).write(writer)?;
+        self.base_sequence.write(writer)?;
 
         // records
         let n_records = match &self.records {
             ControlBatchOrRecords::ControlBatch(_) => 1,
             ControlBatchOrRecords::Records(records) => records.len(),
         };
-        Int32(i32::try_from(n_records)?).write(writer)?;
+        i32::try_from(n_records)?.write(writer)?;
         match self.compression {
             RecordBatchCompression::NoCompression => {
                 Self::write_records(writer, self.records)?;
@@ -1025,8 +1025,8 @@ mod tests {
     #[test]
     fn test_control_batch_record_unknown_version() {
         let mut buf = Cursor::new(Vec::<u8>::new());
-        Int16(1).write(&mut buf).unwrap();
-        Int16(0).write(&mut buf).unwrap();
+        1i16.write(&mut buf).unwrap();
+        0i16.write(&mut buf).unwrap();
         buf.set_position(0);
 
         let err = ControlBatchRecord::read(&mut buf).unwrap_err();
@@ -1040,8 +1040,8 @@ mod tests {
     #[test]
     fn test_control_batch_record_unknown_type() {
         let mut buf = Cursor::new(Vec::<u8>::new());
-        Int16(0).write(&mut buf).unwrap();
-        Int16(2).write(&mut buf).unwrap();
+        0i16.write(&mut buf).unwrap();
+        2i16.write(&mut buf).unwrap();
         buf.set_position(0);
 
         let err = ControlBatchRecord::read(&mut buf).unwrap_err();
