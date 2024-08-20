@@ -200,6 +200,12 @@ impl Client {
     }
 
     pub async fn consumer_group(&self, group: String, topics: &[Topic]) -> Result<ConsumerGroup> {
-        ConsumerGroup::new(self.brokers.clone(), group, topics).await
+        ConsumerGroup::new(
+            self.brokers.clone(),
+            Arc::clone(&self.backoff_config),
+            group,
+            topics,
+        )
+        .await
     }
 }

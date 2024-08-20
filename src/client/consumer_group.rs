@@ -49,9 +49,9 @@ pub struct ConsumerGroup {
     group: String,
     member_id: String,
     group_instance_id: Option<String>,
-
     generation_id: i32,
-    backoff: BackoffConfig,
+
+    backoff_config: Arc<BackoffConfig>,
 
     assignment: ConsumerGroupMemberAssignment,
 
@@ -62,19 +62,21 @@ pub struct ConsumerGroup {
 impl ConsumerGroup {
     pub(crate) async fn new(
         brokers: Arc<BrokerConnector>,
+        backoff_config: Arc<BackoffConfig>,
         group: String,
         topics: &[Topic],
     ) -> Result<Self, Error> {
-        let backoff = BackoffConfig::default();
-
         let req = &FindCoordinatorRequest {
             key: group.clone(),
             key_type: CoordinatorType::Group,
             tagged_fields: None,
         };
 
-        let coordinator_id =
-            maybe_retry(&backoff, brokers.as_ref(), "find_coordinator", || async {
+        let coordinator_id = maybe_retry(
+            &backoff_config,
+            brokers.as_ref(),
+            "find_coordinator",
+            || async {
                 let (broker, gen) = brokers
                     .as_ref()
                     .get()
@@ -101,8 +103,9 @@ impl ConsumerGroup {
                 }
 
                 Ok(resp.node_id)
-            })
-            .await?;
+            },
+        )
+        .await?;
 
         let coordinator = match brokers.as_ref().connect(coordinator_id).await? {
             Some(broker) => broker,
@@ -113,7 +116,7 @@ impl ConsumerGroup {
             }
         };
 
-        let resp = maybe_retry(&backoff, brokers.as_ref(), "join_group", || {
+        let resp = maybe_retry(&backoff_config, brokers.as_ref(), "join_group", || {
             let coordinator = coordinator.clone();
             let group = group.clone();
 
@@ -239,7 +242,7 @@ impl ConsumerGroup {
             assignments,
             tagged_fields: None,
         };
-        let assignment = maybe_retry(&backoff, brokers.as_ref(), "sync_group", || {
+        let assignment = maybe_retry(&backoff_config, brokers.as_ref(), "sync_group", || {
             let coordinator = coordinator.clone();
 
             async move {
@@ -272,7 +275,7 @@ impl ConsumerGroup {
             member_id: req.member_id.clone(),
             group_instance_id: None,
             generation_id: resp.generation_id,
-            backoff,
+            backoff_config,
             brokers,
             assignment,
             coordinator: Mutex::new((Some(coordinator), BrokerCacheGeneration::START)),
@@ -287,7 +290,7 @@ impl ConsumerGroup {
             group_instance_id: None,
         };
 
-        maybe_retry(&self.backoff, self, "heartbeat", || async move {
+        maybe_retry(&self.backoff_config, self, "heartbeat", || async move {
             let (broker, gen) = self
                 .get()
                 .await
@@ -325,7 +328,7 @@ impl ConsumerGroup {
             tagged_fields: None,
         };
 
-        maybe_retry(&self.backoff, self, "leave_group", || async move {
+        maybe_retry(&self.backoff_config, self, "leave_group", || async move {
             let (broker, gen) = self
                 .get()
                 .await
@@ -363,7 +366,7 @@ impl ConsumerGroup {
             tagged_fields: None,
         };
 
-        maybe_retry(&self.backoff, self, "offset_fetch", || async move {
+        maybe_retry(&self.backoff_config, self, "offset_fetch", || async move {
             let (broker, gen) = self
                 .get()
                 .await
@@ -403,21 +406,22 @@ impl ConsumerGroup {
             topics,
         };
 
-        let (results, gen) = maybe_retry(&self.backoff, self, "offset_commit", || async move {
-            let (broker, gen) = self
-                .get()
-                .await
-                .map_err(|err| ErrorOrThrottle::Error((err.into(), None)))?;
-            let resp = broker
-                .request(req)
-                .await
-                .map_err(|err| ErrorOrThrottle::Error((err.into(), Some(gen))))?;
+        let (results, gen) =
+            maybe_retry(&self.backoff_config, self, "offset_commit", || async move {
+                let (broker, gen) = self
+                    .get()
+                    .await
+                    .map_err(|err| ErrorOrThrottle::Error((err.into(), None)))?;
+                let resp = broker
+                    .request(req)
+                    .await
+                    .map_err(|err| ErrorOrThrottle::Error((err.into(), Some(gen))))?;
 
-            maybe_throttle(resp.throttle_time_ms)?;
+                maybe_throttle(resp.throttle_time_ms)?;
 
-            Ok((resp.topics, gen))
-        })
-        .await?;
+                Ok((resp.topics, gen))
+            })
+            .await?;
 
         for topic in results {
             for partition in topic.partitions {
@@ -486,26 +490,31 @@ impl BrokerCache for &ConsumerGroup {
             tagged_fields: None,
         };
 
-        let coordinator_id = maybe_retry(&self.backoff, *self, "find_coordinator", || async move {
-            // we don't need to connect to controller, every broker can handle this request.
-            //
-            // See: https://developer.confluent.io/courses/architecture/consumer-group-protocol/#step-1--find-group-coordinator
-            let (broker, gen) = self
-                .brokers
-                .as_ref()
-                .get()
-                .await
-                .map_err(|err| ErrorOrThrottle::Error((err.into(), None)))?;
+        let coordinator_id = maybe_retry(
+            &self.backoff_config,
+            *self,
+            "find_coordinator",
+            || async move {
+                // we don't need to connect to controller, every broker can handle this request.
+                //
+                // See: https://developer.confluent.io/courses/architecture/consumer-group-protocol/#step-1--find-group-coordinator
+                let (broker, gen) = self
+                    .brokers
+                    .as_ref()
+                    .get()
+                    .await
+                    .map_err(|err| ErrorOrThrottle::Error((err.into(), None)))?;
 
-            let resp = broker
-                .request(req)
-                .await
-                .map_err(|err| ErrorOrThrottle::Error((err.into(), Some(gen))))?;
+                let resp = broker
+                    .request(req)
+                    .await
+                    .map_err(|err| ErrorOrThrottle::Error((err.into(), Some(gen))))?;
 
-            maybe_throttle(resp.throttle_time_ms)?;
+                maybe_throttle(resp.throttle_time_ms)?;
 
-            Ok(resp.node_id)
-        })
+                Ok(resp.node_id)
+            },
+        )
         .await?;
 
         let coordinator = self.brokers.connect(coordinator_id).await?.ok_or_else(|| {
