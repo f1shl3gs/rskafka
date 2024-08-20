@@ -467,7 +467,6 @@ impl ConsumerGroup {
 }
 
 /// Caches the coordinator broker
-#[async_trait::async_trait]
 impl BrokerCache for &ConsumerGroup {
     type R = MessengerTransport;
     type E = Error;

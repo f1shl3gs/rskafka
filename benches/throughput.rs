@@ -1,19 +1,16 @@
-use std::{
-    collections::BTreeMap,
-    future::Future,
-    pin::Pin,
-    sync::Arc,
-    task::Poll,
-    time::{Duration, Instant},
-};
+use std::collections::BTreeMap;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::task::Poll;
+use std::time::{Duration, Instant};
 
 use chrono::{TimeZone, Utc};
 use criterion::{
     criterion_group, criterion_main, measurement::WallTime, BenchmarkGroup, Criterion, SamplingMode,
 };
-use futures::{stream::FuturesUnordered, StreamExt, TryStreamExt};
+use futures::{stream::FuturesUnordered, FutureExt, StreamExt, TryStreamExt};
 use parking_lot::Once;
-use pin_project_lite::pin_project;
 use rdkafka::{
     consumer::{Consumer, StreamConsumer as RdStreamConsumer},
     producer::{FutureProducer, FutureRecord},
@@ -256,17 +253,14 @@ where
     fn time_it(self) -> Self::TimeItFut {
         TimeIt {
             t_start: Instant::now(),
-            inner: self,
+            inner: Box::pin(self),
         }
     }
 }
 
-pin_project! {
-    struct TimeIt<F> {
-        t_start: Instant,
-        #[pin]
-        inner: F,
-    }
+struct TimeIt<F> {
+    t_start: Instant,
+    inner: Pin<Box<F>>,
 }
 
 impl<F> Future for TimeIt<F>
@@ -275,10 +269,9 @@ where
 {
     type Output = Duration;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
-        let this = self.project();
-        match this.inner.poll(cx) {
-            Poll::Ready(_) => Poll::Ready(this.t_start.elapsed()),
+    fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
+        match self.inner.poll_unpin(cx) {
+            Poll::Ready(_) => Poll::Ready(self.t_start.elapsed()),
             Poll::Pending => Poll::Pending,
         }
     }

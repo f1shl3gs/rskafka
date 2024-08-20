@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::{collections::BTreeMap, time::Duration};
 
 use chrono::{TimeZone, Utc};
@@ -46,7 +44,9 @@ impl BrokerImpl {
 #[derive(Debug)]
 pub struct TestConfig {
     pub bootstrap_brokers: Vec<String>,
+    #[allow(dead_code)]
     pub broker_impl: BrokerImpl,
+    #[allow(dead_code)]
     pub socks5_proxy: Option<String>,
 }
 

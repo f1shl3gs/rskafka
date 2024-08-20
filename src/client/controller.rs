@@ -1,7 +1,6 @@
 use std::ops::ControlFlow;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use futures::StreamExt;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info};
@@ -418,7 +417,6 @@ impl ControllerClient {
 }
 
 /// Caches the cluster controller broker.
-#[async_trait]
 impl BrokerCache for &ControllerClient {
     type R = MessengerTransport;
     type E = Error;
