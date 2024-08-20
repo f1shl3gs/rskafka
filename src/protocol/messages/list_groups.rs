@@ -312,7 +312,7 @@ mod tests {
                         group_id: "foo".to_string(),
                         protocol_type: "consumer".to_string(),
                         group_state: Some("Empty".to_string()),
-                        tagged_fields: None,
+                        tagged_fields: Some(TaggedFields::default()),
                     }],
                     tagged_fields: Some(TaggedFields::default()),
                 },
