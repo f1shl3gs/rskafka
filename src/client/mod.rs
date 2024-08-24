@@ -5,7 +5,7 @@ use thiserror::Error;
 use crate::backoff::BackoffConfig;
 use crate::build_info::DEFAULT_CLIENT_ID;
 use crate::client::partition::PartitionClient;
-use crate::connection::{BrokerConnector, MetadataLookupMode, TlsConfig};
+use crate::connection::{Broker, BrokerConnector, MetadataLookupMode, TlsConfig};
 use crate::topic::Topic;
 
 pub mod consumer;
@@ -169,7 +169,23 @@ impl Client {
         .await
     }
 
-    /// Returns a list of topics in the cluster
+    /// Create a new consumer group the given topics
+    pub async fn consumer_group(&self, group: String, topics: &[Topic]) -> Result<ConsumerGroup> {
+        ConsumerGroup::new(
+            self.brokers.clone(),
+            Arc::clone(&self.backoff_config),
+            group,
+            topics,
+        )
+        .await
+    }
+
+    /// Returns a list of all brokers from cluster topology
+    pub fn brokers(&self) -> Vec<Broker> {
+        self.brokers.topology.get_brokers()
+    }
+
+    /// Returns a list of topics in the cluster, if None is provided, all topics returned
     pub async fn list_topics(&self) -> Result<Vec<Topic>> {
         // Do not used a cached metadata response to satisfy this request, in
         // order to prevent:
@@ -197,15 +213,5 @@ impl Client {
                     .collect(),
             })
             .collect())
-    }
-
-    pub async fn consumer_group(&self, group: String, topics: &[Topic]) -> Result<ConsumerGroup> {
-        ConsumerGroup::new(
-            self.brokers.clone(),
-            Arc::clone(&self.backoff_config),
-            group,
-            topics,
-        )
-        .await
     }
 }
