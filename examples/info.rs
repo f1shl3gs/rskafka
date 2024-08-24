@@ -36,7 +36,7 @@ async fn main() {
             .iter()
             .map(|t| OffsetFetchRequestTopic {
                 name: t.name.clone(),
-                partition_indexes: t.partitions.iter().cloned().collect::<Vec<_>>(),
+                partition_indexes: t.partitions.keys().cloned().collect(),
                 tagged_fields: None,
             })
             .collect::<Vec<_>>();

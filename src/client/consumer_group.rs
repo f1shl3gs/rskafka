@@ -560,7 +560,7 @@ fn round_robin(
     let mut i = 0;
     let n = members.len();
     for topic in topics {
-        for partition in &topic.partitions {
+        for (partition, _) in &topic.partitions {
             let member = loop {
                 let member = &members[i % n];
                 i += 1;
@@ -642,7 +642,7 @@ fn range(
             };
 
             let max = min + partitions_per_consumer + extra;
-            let mut part = topic.partitions.iter().cloned().collect::<Vec<_>>();
+            let mut part = topic.partitions.keys().cloned().collect::<Vec<_>>();
             let partitions = part.drain(min..max).collect::<Vec<_>>();
             if partitions.is_empty() {
                 continue;
@@ -667,14 +667,20 @@ fn range(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
-
     use super::*;
+    use crate::topic::Partition;
 
-    fn btree_set(items: impl Iterator<Item = i32>) -> BTreeSet<i32> {
-        let mut set = BTreeSet::new();
+    fn btreemap(items: impl Iterator<Item = i32>) -> BTreeMap<i32, Partition> {
+        let mut set = BTreeMap::new();
         for item in items {
-            set.insert(item);
+            set.insert(
+                item,
+                Partition {
+                    leader_id: 0,
+                    replica_nodes: vec![],
+                    isr_nodes: vec![],
+                },
+            );
         }
         set
     }
@@ -768,7 +774,7 @@ mod tests {
                 .into_iter()
                 .map(|(name, partitions)| Topic {
                     name: name.to_string(),
-                    partitions: btree_set(partitions.into_iter()),
+                    partitions: btreemap(partitions.into_iter()),
                 })
                 .collect::<Vec<Topic>>();
             let members = members
@@ -873,7 +879,7 @@ mod tests {
                 .into_iter()
                 .map(|(name, partitions)| Topic {
                     name: name.to_string(),
-                    partitions: btree_set(partitions.into_iter()),
+                    partitions: btreemap(partitions.into_iter()),
                 })
                 .collect::<Vec<Topic>>();
             let members = members

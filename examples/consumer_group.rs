@@ -11,6 +11,7 @@ use rskafka::protocol::messages::{
     OffsetCommitRequestTopic, OffsetCommitRequestTopicPartition, PartitionAssignment,
 };
 use rskafka::record::RecordAndOffset;
+use rskafka::topic::Topic;
 use tokio::signal::unix::SignalKind;
 use tokio::sync::Notify;
 use tracing::error;
@@ -260,7 +261,7 @@ async fn main() {
                 }
             };
 
-            if !new_topics.eq(&topics) {
+            if !check_topic_and_partitions(&topics, &new_topics) {
                 // topics or partitions changed, stop consuming,
                 notify.notify_waiters();
 
@@ -270,4 +271,25 @@ async fn main() {
             }
         }
     }
+}
+
+fn check_topic_and_partitions(old: &[Topic], new: &[Topic]) -> bool {
+    if old.len() != new.len() {
+        return false;
+    }
+
+    for old_topic in old {
+        if new
+            .iter()
+            .find(|new_topic| {
+                new_topic.name == old_topic.name
+                    && new_topic.partitions.len() == old_topic.partitions.len()
+            })
+            .is_none()
+        {
+            return false;
+        }
+    }
+
+    true
 }

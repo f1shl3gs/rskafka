@@ -6,7 +6,7 @@ use crate::backoff::BackoffConfig;
 use crate::build_info::DEFAULT_CLIENT_ID;
 use crate::client::partition::PartitionClient;
 use crate::connection::{Broker, BrokerConnector, MetadataLookupMode, TlsConfig};
-use crate::topic::Topic;
+use crate::topic::{Partition, Topic};
 
 pub mod consumer;
 mod consumer_group;
@@ -209,7 +209,16 @@ impl Client {
                 partitions: t
                     .partitions
                     .into_iter()
-                    .map(|p| p.partition_index)
+                    .map(|p| {
+                        (
+                            p.partition_index,
+                            Partition {
+                                leader_id: p.leader_id,
+                                replica_nodes: p.replica_nodes,
+                                isr_nodes: p.isr_nodes,
+                            },
+                        )
+                    })
                     .collect(),
             })
             .collect())
