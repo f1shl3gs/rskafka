@@ -4,7 +4,7 @@ use crate::protocol::{
     api_key::ApiKey,
     api_version::{ApiVersion, ApiVersionRange},
     error::Error as ApiError,
-    messages::{read_versioned_array, write_versioned_array, IsolationLevel},
+    messages::{IsolationLevel, read_versioned_array, write_versioned_array},
     primitives::Records,
     traits::{ReadType, WriteType},
 };

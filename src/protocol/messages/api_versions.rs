@@ -12,8 +12,8 @@ use crate::protocol::{
 };
 
 use super::{
-    read_versioned_array, ReadVersionedError, ReadVersionedType, RequestBody, WriteVersionedError,
-    WriteVersionedType,
+    ReadVersionedError, ReadVersionedType, RequestBody, WriteVersionedError, WriteVersionedType,
+    read_versioned_array,
 };
 
 #[cfg(test)]

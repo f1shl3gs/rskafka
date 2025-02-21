@@ -5,8 +5,8 @@ use crate::protocol::api_version::{ApiVersion, ApiVersionRange};
 use crate::protocol::error::Error;
 use crate::protocol::messages::consumer_group::ConsumerGroupMemberAssignment;
 use crate::protocol::messages::{
-    write_compact_versioned_array, write_versioned_array, ReadVersionedError, ReadVersionedType,
-    RequestBody, WriteVersionedError, WriteVersionedType,
+    ReadVersionedError, ReadVersionedType, RequestBody, WriteVersionedError, WriteVersionedType,
+    write_compact_versioned_array, write_versioned_array,
 };
 use crate::protocol::primitives::TaggedFields;
 use crate::protocol::traits::{ReadCompactType, ReadType, WriteCompactType, WriteType};

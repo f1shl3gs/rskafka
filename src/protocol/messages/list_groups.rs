@@ -4,8 +4,8 @@ use crate::protocol::api_key::ApiKey;
 use crate::protocol::api_version::{ApiVersion, ApiVersionRange};
 use crate::protocol::error::Error;
 use crate::protocol::messages::{
-    read_compact_versioned_array, read_versioned_array, ReadVersionedError, ReadVersionedType,
-    RequestBody, WriteVersionedError, WriteVersionedType,
+    ReadVersionedError, ReadVersionedType, RequestBody, WriteVersionedError, WriteVersionedType,
+    read_compact_versioned_array, read_versioned_array,
 };
 use crate::protocol::primitives::TaggedFields;
 use crate::protocol::traits::{ReadCompactType, ReadType, WriteCompactType, WriteType};

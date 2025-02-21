@@ -1,12 +1,12 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
 
+use rskafka::client::ClientBuilder;
 use rskafka::client::error::ProtocolError;
 use rskafka::client::partition::{OffsetAt, UnknownTopicHandling};
-use rskafka::client::ClientBuilder;
 use rskafka::protocol::messages::{
     OffsetCommitRequestTopic, OffsetCommitRequestTopicPartition, PartitionAssignment,
 };
@@ -111,7 +111,11 @@ async fn main() {
 
                     current_offset.store(start, Ordering::Relaxed);
 
-                    println!("start consume records from partition, topic: {}, partition: {}, start: {start}", pc.topic(), pc.partition());
+                    println!(
+                        "start consume records from partition, topic: {}, partition: {}, start: {start}",
+                        pc.topic(),
+                        pc.partition()
+                    );
 
                     loop {
                         let start = current_offset.load(Ordering::Relaxed);

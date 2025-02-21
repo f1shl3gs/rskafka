@@ -1,9 +1,9 @@
 use std::io::{Read, Write};
 
 use super::{
+    ReadVersionedError, ReadVersionedType, RequestBody, WriteVersionedError, WriteVersionedType,
     read_compact_versioned_array, read_versioned_array, write_compact_versioned_array,
-    write_versioned_array, ReadVersionedError, ReadVersionedType, RequestBody, WriteVersionedError,
-    WriteVersionedType,
+    write_versioned_array,
 };
 use crate::protocol::api_version::ApiVersionRange;
 use crate::protocol::error::Error;

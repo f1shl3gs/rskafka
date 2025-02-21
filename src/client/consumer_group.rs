@@ -11,6 +11,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info};
 
+use crate::BackoffConfig;
 use crate::backoff::ErrorOrThrottle;
 use crate::client::controller::maybe_retry;
 use crate::client::error::{Error, ProtocolError, RequestContext};
@@ -27,7 +28,6 @@ use crate::protocol::messages::{
 use crate::protocol::traits::WriteType;
 use crate::throttle::maybe_throttle;
 use crate::topic::Topic;
-use crate::BackoffConfig;
 
 /// DEFAULT_SESSION_TIMEOUT_MS contains the default interval the coordinator will wait
 /// for a heartbeat before marking a consumer as dead.
@@ -77,7 +77,7 @@ impl ConsumerGroup {
             brokers.as_ref(),
             "find_coordinator",
             || async {
-                let (broker, gen) = brokers
+                let (broker, g) = brokers
                     .as_ref()
                     .get()
                     .await
@@ -85,7 +85,7 @@ impl ConsumerGroup {
                 let resp = broker
                     .request(req)
                     .await
-                    .map_err(|err| ErrorOrThrottle::Error((err.into(), Some(gen))))?;
+                    .map_err(|err| ErrorOrThrottle::Error((err.into(), Some(g))))?;
 
                 maybe_throttle(resp.throttle_time_ms)?;
 
@@ -98,7 +98,7 @@ impl ConsumerGroup {
                             response: None,
                             is_virtual: false,
                         },
-                        Some(gen),
+                        Some(g),
                     )));
                 }
 
@@ -112,7 +112,7 @@ impl ConsumerGroup {
             None => {
                 return Err(Error::InvalidResponse(
                     "connect to coordinator failed".to_string(),
-                ))
+                ));
             }
         };
 
@@ -168,7 +168,7 @@ impl ConsumerGroup {
                                         is_virtual: false,
                                     },
                                     None,
-                                )))
+                                )));
                             }
                         }
                     } else {
@@ -204,7 +204,7 @@ impl ConsumerGroup {
                     return Err(Error::InvalidResponse(format!(
                         "invalid protocol {}",
                         resp.protocol_name
-                    )))
+                    )));
                 }
             };
 
@@ -291,14 +291,14 @@ impl ConsumerGroup {
         };
 
         maybe_retry(&self.backoff_config, self, "heartbeat", || async move {
-            let (broker, gen) = self
+            let (broker, g) = self
                 .get()
                 .await
                 .map_err(|err| ErrorOrThrottle::Error((err.into(), None)))?;
             let resp = broker
                 .request(req)
                 .await
-                .map_err(|err| ErrorOrThrottle::Error((err.into(), Some(gen))))?;
+                .map_err(|err| ErrorOrThrottle::Error((err.into(), Some(g))))?;
 
             maybe_throttle(resp.throttle_time_ms)?;
 
@@ -311,7 +311,7 @@ impl ConsumerGroup {
                         response: None,
                         is_virtual: false,
                     },
-                    Some(gen),
+                    Some(g),
                 )));
             }
 
@@ -329,14 +329,14 @@ impl ConsumerGroup {
         };
 
         maybe_retry(&self.backoff_config, self, "leave_group", || async move {
-            let (broker, gen) = self
+            let (broker, g) = self
                 .get()
                 .await
                 .map_err(|err| ErrorOrThrottle::Error((err, None)))?;
             let resp = broker
                 .request(req)
                 .await
-                .map_err(|err| ErrorOrThrottle::Error((err.into(), Some(gen))))?;
+                .map_err(|err| ErrorOrThrottle::Error((err.into(), Some(g))))?;
 
             maybe_throttle(resp.throttle_time_ms)?;
 
@@ -367,14 +367,14 @@ impl ConsumerGroup {
         };
 
         maybe_retry(&self.backoff_config, self, "offset_fetch", || async move {
-            let (broker, gen) = self
+            let (broker, g) = self
                 .get()
                 .await
                 .map_err(|err| ErrorOrThrottle::Error((err.into(), None)))?;
             let resp = broker
                 .request(req)
                 .await
-                .map_err(|err| ErrorOrThrottle::Error((err.into(), Some(gen))))?;
+                .map_err(|err| ErrorOrThrottle::Error((err.into(), Some(g))))?;
 
             maybe_throttle(resp.throttle_time_ms)?;
 
@@ -406,20 +406,20 @@ impl ConsumerGroup {
             topics,
         };
 
-        let (results, gen) =
+        let (results, g) =
             maybe_retry(&self.backoff_config, self, "offset_commit", || async move {
-                let (broker, gen) = self
+                let (broker, g) = self
                     .get()
                     .await
                     .map_err(|err| ErrorOrThrottle::Error((err.into(), None)))?;
                 let resp = broker
                     .request(req)
                     .await
-                    .map_err(|err| ErrorOrThrottle::Error((err.into(), Some(gen))))?;
+                    .map_err(|err| ErrorOrThrottle::Error((err.into(), Some(g))))?;
 
                 maybe_throttle(resp.throttle_time_ms)?;
 
-                Ok((resp.topics, gen))
+                Ok((resp.topics, g))
             })
             .await?;
 
@@ -432,7 +432,7 @@ impl ConsumerGroup {
                         | ProtocolError::CoordinatorNotAvailable
                         | ProtocolError::NotCoordinator => {
                             // not a critical error, we just need to redispatch
-                            self.invalidate("", gen).await;
+                            self.invalidate("", g).await;
                         }
                         ProtocolError::OffsetMetadataTooLarge
                         | ProtocolError::InvalidCommitOffsetSize => {
@@ -452,10 +452,10 @@ impl ConsumerGroup {
                         }
                         ProtocolError::UnknownTopicOrPartition => {
                             // TODO: handle this error
-                            self.invalidate("", gen).await;
+                            self.invalidate("", g).await;
                         }
                         _ => {
-                            self.invalidate("", gen).await;
+                            self.invalidate("", g).await;
                         }
                     }
                 }
@@ -498,7 +498,7 @@ impl BrokerCache for &ConsumerGroup {
                 // we don't need to connect to controller, every broker can handle this request.
                 //
                 // See: https://developer.confluent.io/courses/architecture/consumer-group-protocol/#step-1--find-group-coordinator
-                let (broker, gen) = self
+                let (broker, g) = self
                     .brokers
                     .as_ref()
                     .get()
@@ -508,7 +508,7 @@ impl BrokerCache for &ConsumerGroup {
                 let resp = broker
                     .request(req)
                     .await
-                    .map_err(|err| ErrorOrThrottle::Error((err.into(), Some(gen))))?;
+                    .map_err(|err| ErrorOrThrottle::Error((err.into(), Some(g))))?;
 
                 maybe_throttle(resp.throttle_time_ms)?;
 
@@ -530,16 +530,16 @@ impl BrokerCache for &ConsumerGroup {
         Ok((coordinator, current.1))
     }
 
-    async fn invalidate(&self, reason: &'static str, gen: BrokerCacheGeneration) {
+    async fn invalidate(&self, reason: &'static str, g: BrokerCacheGeneration) {
         let mut guard = self.coordinator.lock().await;
 
-        if guard.1 != gen {
+        if guard.1 != g {
             // stale request
             debug!(
                 message = "stale invalidation request for coordinator cache",
                 reason,
                 current_gen = guard.1.get(),
-                request_gen = gen.get(),
+                request_gen = g.get(),
             );
 
             return;

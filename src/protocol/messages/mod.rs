@@ -305,9 +305,11 @@ mod tests {
         let mut buffer = vec![];
         write_versioned_array::<_, VersionTest>(&mut buffer, version, None).unwrap();
         let mut cursor = Cursor::new(buffer);
-        assert!(read_versioned_array::<_, VersionTest>(&mut cursor, version)
-            .unwrap()
-            .is_none())
+        assert!(
+            read_versioned_array::<_, VersionTest>(&mut cursor, version)
+                .unwrap()
+                .is_none()
+        )
     }
 
     #[test]

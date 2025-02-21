@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use chrono::Utc;
 use rskafka::client::partition::UnknownTopicHandling;
-use rskafka::client::producer::aggregator::RecordAggregator;
 use rskafka::client::producer::BatchProducerBuilder;
+use rskafka::client::producer::aggregator::RecordAggregator;
 use rskafka::client::{Client, ClientBuilder};
 use rskafka::record::Record;
 

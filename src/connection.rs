@@ -284,8 +284,8 @@ impl BrokerConnector {
         // Client initialises this cache at construction time, so unless
         // invalidated, there will always be a cached entry available.
         if matches!(metadata_mode, MetadataLookupMode::CachedArbitrary) {
-            if let Some((m, gen)) = self.cached_metadata.get(&topics) {
-                return Ok((m, Some(gen)));
+            if let Some((m, g)) = self.cached_metadata.get(&topics) {
+                return Ok((m, Some(g)));
             }
         }
 
@@ -316,9 +316,9 @@ impl BrokerConnector {
     pub(crate) fn invalidate_metadata_cache(
         &self,
         reason: &'static str,
-        gen: MetadataCacheGeneration,
+        g: MetadataCacheGeneration,
     ) {
-        self.cached_metadata.invalidate(reason, gen)
+        self.cached_metadata.invalidate(reason, g)
     }
 
     /// Returns a new connection to the broker with the provided id
@@ -423,7 +423,7 @@ pub trait BrokerCache: Send + Sync {
     fn invalidate(
         &self,
         reason: &'static str,
-        gen: BrokerCacheGeneration,
+        g: BrokerCacheGeneration,
     ) -> impl Future<Output = ()> + Send;
 }
 
@@ -455,21 +455,21 @@ impl BrokerCache for &BrokerConnector {
         Ok((connection, current_broker.1))
     }
 
-    async fn invalidate(&self, reason: &'static str, gen: BrokerCacheGeneration) {
+    async fn invalidate(&self, reason: &'static str, g: BrokerCacheGeneration) {
         let mut guard = self.cached_arbitrary_broker.lock().await;
 
-        if guard.1 != gen {
+        if guard.1 != g {
             // stale request
             debug!(
                 reason,
-                current_gen = guard.1 .0,
-                request_gen = gen.0,
+                current_gen = guard.1.0,
+                request_gen = g.0,
                 "stale invalidation request for arbitrary broker cache",
             );
             return;
         }
 
-        info!(reason, "Invalidating cached arbitrary broker",);
+        info!(reason, "Invalidating cached arbitrary broker");
         guard.0.take();
     }
 }
@@ -558,11 +558,11 @@ where
                 Err(e @ RequestError::Poisoned(_) | e @ RequestError::IO(_))
                     if !matches!(metadata_mode, MetadataLookupMode::SpecificBroker(_)) =>
                 {
-                    if let Some(gen) = cache_gen {
+                    if let Some(g) = cache_gen {
                         arbitrary_broker_cache
                             .invalidate(
                                 "metadata request: arbitrary/cached broker is connection is broken",
-                                gen,
+                                g,
                             )
                             .await;
                     }

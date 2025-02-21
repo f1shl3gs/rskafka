@@ -6,8 +6,8 @@ use crate::protocol::{
     api_version::{ApiVersion, ApiVersionRange},
     error::Error,
     messages::{
-        read_compact_versioned_array, read_versioned_array, ReadVersionedError, ReadVersionedType,
-        RequestBody, WriteVersionedError, WriteVersionedType,
+        ReadVersionedError, ReadVersionedType, RequestBody, WriteVersionedError,
+        WriteVersionedType, read_compact_versioned_array, read_versioned_array,
     },
     primitives::TaggedFields,
     traits::{ReadType, WriteType},

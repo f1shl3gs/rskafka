@@ -2,16 +2,16 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::io::Cursor;
 use std::ops::DerefMut;
-use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI32, Ordering};
 use std::task::Poll;
 
 use futures::future::BoxFuture;
 use parking_lot::Mutex;
 use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, WriteHalf};
-use tokio::sync::oneshot::{channel, Sender};
 use tokio::sync::Mutex as AsyncMutex;
+use tokio::sync::oneshot::{Sender, channel};
 use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 
@@ -668,10 +668,10 @@ mod tests {
     use std::time::Duration;
 
     use assert_matches::assert_matches;
-    use futures::{pin_mut, FutureExt};
+    use futures::{FutureExt, pin_mut};
     use tokio::{
         io::{AsyncReadExt, DuplexStream},
-        sync::{mpsc::UnboundedSender, Barrier},
+        sync::{Barrier, mpsc::UnboundedSender},
     };
 
     use super::*;
