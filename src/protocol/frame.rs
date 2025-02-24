@@ -159,7 +159,7 @@ mod tests {
 
         data.set_position(0);
         let actual = data.read_message(0).await.unwrap();
-        assert_eq!(actual, vec![]);
+        assert!(actual.is_empty());
     }
 
     #[tokio::test]
@@ -168,6 +168,6 @@ mod tests {
         client.write_message(&[]).await.unwrap();
 
         let actual = server.read_message(0).await.unwrap();
-        assert_eq!(actual, vec![]);
+        assert!(actual.is_empty());
     }
 }

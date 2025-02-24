@@ -8,6 +8,8 @@ use std::task::Poll;
 
 use futures::future::BoxFuture;
 use parking_lot::Mutex;
+use rsasl::mechname::{MechanismNameError, Mechname};
+use rsasl::prelude::{SASLError, SessionError};
 use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, WriteHalf};
 use tokio::sync::Mutex as AsyncMutex;
@@ -15,7 +17,9 @@ use tokio::sync::oneshot::{Sender, channel};
 use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 
+use crate::client::SaslConfig;
 use crate::protocol::api_version::ApiVersionRange;
+use crate::protocol::messages::SaslAuthenticateResponse;
 use crate::protocol::{messages::ApiVersionsRequest, traits::ReadType};
 use crate::{
     backoff::ErrorOrThrottle,
@@ -178,6 +182,21 @@ pub enum SaslError {
 
     #[error("API error: {0}")]
     ApiError(#[from] ApiError),
+
+    #[error("Invalid sasl mechanism: {0}")]
+    InvalidSaslMechanism(#[from] MechanismNameError),
+
+    #[error("Sasl session error: {0}")]
+    SaslSessionError(#[from] SessionError),
+
+    #[error("Invalid SASL config: {0}")]
+    InvalidConfig(#[from] SASLError),
+
+    #[error("Error in user defined callback: {0}")]
+    Callback(Box<dyn std::error::Error + Send + Sync>),
+
+    #[error("unsupported sasl mechanism")]
+    UnsupportedSaslMechanism,
 }
 
 impl<RW> Messenger<RW>
@@ -517,24 +536,71 @@ where
         Err(SyncVersionsError::NoWorkingVersion)
     }
 
-    pub async fn sasl_handshake(
+    async fn sasl_authentication(
         &self,
-        mechanism: &str,
         auth_bytes: Vec<u8>,
-    ) -> Result<(), SaslError> {
+    ) -> Result<SaslAuthenticateResponse, SaslError> {
+        let req = SaslAuthenticateRequest::new(auth_bytes);
+        let resp = self.request(req).await?;
+        if let Some(err) = resp.error_code {
+            if let Some(msg) = resp.error_message {
+                debug!("Sasl auth error message: {msg}")
+            }
+
+            return Err(SaslError::ApiError(err));
+        }
+
+        Ok(resp)
+    }
+
+    pub async fn sasl_handshake(&self, config: SaslConfig) -> Result<(), SaslError> {
+        let mechanism = config.mechanism();
         let req = SaslHandshakeRequest::new(mechanism);
         let resp = self.request(req).await?;
         if let Some(err) = resp.error_code {
             return Err(SaslError::ApiError(err));
         }
-        let req = SaslAuthenticateRequest::new(auth_bytes);
-        let resp = self.request(req).await?;
-        if let Some(err) = resp.error_code {
-            if let Some(s) = resp.error_message {
-                debug!("Sasl auth error message: {s}");
-            }
-            return Err(SaslError::ApiError(err));
+
+        let config = config.get_sasl_config().await?;
+        let sasl = rsasl::prelude::SASLClient::new(config);
+        let mechanisms = resp
+            .mechanisms
+            .iter()
+            .map(|m| Mechname::parse(m.as_bytes()).map_err(SaslError::InvalidSaslMechanism))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        debug!(?mechanisms, "Supported SASL mechanisms");
+
+        let prefer_mechanism =
+            Mechname::parse(mechanism.as_bytes()).map_err(SaslError::InvalidSaslMechanism)?;
+        if !mechanisms.contains(&prefer_mechanism) {
+            return Err(SaslError::UnsupportedSaslMechanism);
         }
+
+        let mut session = sasl
+            .start_suggested(&[prefer_mechanism])
+            .map_err(|_| SaslError::UnsupportedSaslMechanism)?;
+
+        debug!(?mechanism, "Using SASL mechanism");
+
+        // we step through the auth process, starting on our side with NO data received so far
+        let mut data_received: Option<Vec<u8>> = None;
+        loop {
+            let mut to_sent = Cursor::new(Vec::new());
+            let state = session.step(data_received.as_deref(), &mut to_sent)?;
+
+            if state.has_sent_message() {
+                let authentication_response =
+                    self.sasl_authentication(to_sent.into_inner()).await?;
+
+                data_received = Some(authentication_response.auth_bytes);
+            }
+
+            if state.is_finished() {
+                break;
+            }
+        }
+
         Ok(())
     }
 }

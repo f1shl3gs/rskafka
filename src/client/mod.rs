@@ -20,7 +20,7 @@ use self::{controller::ControllerClient, partition::UnknownTopicHandling};
 use crate::client::consumer_group::ConsumerGroup;
 use error::{Error, Result};
 
-pub use crate::connection::SaslConfig;
+pub use crate::connection::{Credentials, SaslConfig};
 
 #[derive(Debug, Error)]
 pub enum ProduceError {

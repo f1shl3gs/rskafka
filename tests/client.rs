@@ -41,9 +41,12 @@ async fn test_sasl() {
         return;
     }
     ClientBuilder::new(vec![env::var("KAFKA_SASL_CONNECT").unwrap()])
-        .sasl_config(rskafka::client::SaslConfig::Plain {
-            username: "admin".to_string(),
-            password: "admin-secret".to_string(),
+        .sasl_config(rskafka::client::SaslConfig::Plain(
+            rskafka::client::Credentials::new("admin".to_string(), "admin-secret".to_string()),
+        ))
+        .backoff_config(BackoffConfig {
+            deadline: Some(Duration::from_secs(1)),
+            ..Default::default()
         })
         .build()
         .await

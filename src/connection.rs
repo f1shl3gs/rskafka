@@ -21,8 +21,8 @@ use crate::{
 };
 
 pub use self::topology::Broker;
-pub use self::transport::SaslConfig;
 pub use self::transport::TlsConfig;
+pub use self::transport::{Credentials, SaslConfig};
 
 mod topology;
 mod transport;
@@ -165,9 +165,7 @@ impl ConnectionHandler for BrokerRepresentation {
         let mut messenger = Messenger::new(BufStream::new(transport), max_message_size, client_id);
         messenger.sync_versions().await?;
         if let Some(sasl_config) = sasl_config {
-            messenger
-                .sasl_handshake(sasl_config.mechanism(), sasl_config.auth_bytes())
-                .await?;
+            messenger.sasl_handshake(sasl_config).await?;
         }
         Ok(Arc::new(messenger))
     }
@@ -487,7 +485,7 @@ where
     B: ConnectionHandler + Send + Sync,
 {
     // Randomise search order to encourage different clients to choose different brokers
-    brokers.shuffle(&mut thread_rng());
+    brokers.shuffle(&mut rand::rng());
 
     let mut backoff = Backoff::new(backoff_config);
     backoff
