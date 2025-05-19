@@ -2,6 +2,7 @@ use std::fmt::Display;
 use std::future::Future;
 use std::ops::ControlFlow;
 use std::sync::Arc;
+use std::time::Duration;
 
 use rand::prelude::*;
 use thiserror::Error;
@@ -86,6 +87,7 @@ trait ConnectionHandler {
         socks5_proxy: Option<String>,
         sasl_config: Option<SaslConfig>,
         max_message_size: usize,
+        timeout: Option<Duration>,
     ) -> impl Future<Output = Result<Arc<Self::R>>> + Send;
 }
 
@@ -148,6 +150,7 @@ impl ConnectionHandler for BrokerRepresentation {
         socks5_proxy: Option<String>,
         sasl_config: Option<SaslConfig>,
         max_message_size: usize,
+        timeout: Option<Duration>,
     ) -> Result<Arc<Self::R>> {
         let url = self.url();
         info!(
@@ -155,7 +158,7 @@ impl ConnectionHandler for BrokerRepresentation {
             url = url.as_str(),
             "Establishing new connection",
         );
-        let transport = Transport::connect(&url, tls_config, socks5_proxy)
+        let transport = Transport::connect(&url, tls_config, socks5_proxy, timeout)
             .await
             .map_err(|error| Error::Transport {
                 broker: url.to_string(),
@@ -211,6 +214,9 @@ pub struct BrokerConnector {
 
     /// Maximum message size for framing protocol.
     max_message_size: usize,
+
+    /// Timeout for connection attempts to the broker
+    connect_timeout: Option<Duration>,
 }
 
 impl BrokerConnector {
@@ -222,6 +228,7 @@ impl BrokerConnector {
         sasl_config: Option<SaslConfig>,
         max_message_size: usize,
         backoff_config: Arc<BackoffConfig>,
+        connect_timeout: Option<Duration>,
     ) -> Self {
         Self {
             bootstrap_brokers,
@@ -234,6 +241,7 @@ impl BrokerConnector {
             socks5_proxy,
             sasl_config,
             max_message_size,
+            connect_timeout,
         }
     }
 
@@ -330,6 +338,7 @@ impl BrokerConnector {
                         self.socks5_proxy.clone(),
                         self.sasl_config.clone(),
                         self.max_message_size,
+                        self.connect_timeout,
                     )
                     .await?;
                 Ok(Some(connection))
@@ -444,6 +453,7 @@ impl BrokerCache for &BrokerConnector {
             self.socks5_proxy.clone(),
             self.sasl_config.clone(),
             self.max_message_size,
+            self.connect_timeout,
         )
         .await?;
 
@@ -480,6 +490,7 @@ async fn connect_to_a_broker_with_retry<B>(
     socks5_proxy: Option<String>,
     sasl_config: Option<SaslConfig>,
     max_message_size: usize,
+    timeout: Option<Duration>,
 ) -> Result<Arc<B::R>>
 where
     B: ConnectionHandler + Send + Sync,
@@ -499,6 +510,7 @@ where
                         socks5_proxy.clone(),
                         sasl_config.clone(),
                         max_message_size,
+                        timeout,
                     )
                     .await;
 
@@ -810,6 +822,7 @@ mod tests {
             _socks5_proxy: Option<String>,
             _sasl_config: Option<SaslConfig>,
             _max_message_size: usize,
+            _connect_timeout: Option<Duration>,
         ) -> Result<Arc<Self::R>> {
             (self.conn)()
         }
@@ -818,7 +831,7 @@ mod tests {
     #[tokio::test]
     async fn connect_picks_successful_broker() {
         let brokers = vec![
-            // One broker where `connection` always succceeds
+            // One broker where `connection` always succeeds
             FakeBrokerRepresentation {
                 conn: Box::new(|| Ok(Arc::new(FakeConn))),
             },
@@ -838,6 +851,7 @@ mod tests {
             Default::default(),
             Default::default(),
             Default::default(),
+            None,
         )
         .await
         .unwrap();
