@@ -9,10 +9,10 @@ edition = "2024"
 cargo-fuzz = true
 
 [dependencies]
-libfuzzer-sys = "0.4"
-pin-project-lite = "0.2"
+libfuzzer-sys = { version = "0.4" }
+pin-project-lite = { version = "0.2" }
 rskafka = { path = "..", features = ["unstable-fuzzing"] }
-tokio = { version = "1.43", default-features = false, features = ["io-util", "rt"] }
+tokio = { version = "1.45", default-features = false, features = ["io-util", "rt"] }
 
 [[bin]]
 name = "protocol_reader"
