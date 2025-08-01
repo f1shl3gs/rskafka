@@ -456,8 +456,7 @@ impl BrokerCache for &PartitionClient {
                     );
                 }
                 Err(Error::InvalidResponse(format!(
-                    "Partition leader {} not found in metadata response",
-                    leader
+                    "Partition leader {leader} not found in metadata response",
                 )))
             }
             Err(e) => {

@@ -518,7 +518,7 @@ where
         let len = i32::read(reader)?;
         match len {
             l if l < -1 => Err(ReadError::Malformed(
-                format!("Invalid negative length for nullable bytes: {}", l).into(),
+                format!("Invalid negative length for nullable bytes: {l}").into(),
             )),
             -1 => Ok(None),
             l => {

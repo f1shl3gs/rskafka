@@ -67,8 +67,8 @@ pub async fn produce(
         if let Some(value) = value_ref {
             f_record = f_record.payload(value);
         }
-        let (_partition, offset) = client.send(f_record, Timeout::Never).await.unwrap();
-        offsets.push(offset);
+        let delivery = client.send(f_record, Timeout::Never).await.unwrap();
+        offsets.push(delivery.offset);
     }
 
     offsets
@@ -126,13 +126,10 @@ pub async fn consume(
                 Ok(records) => {
                     return records;
                 }
-                Err(e) => {
+                Err(err) => {
                     // this might happen on a fresh rdkafka node
                     // (e.g. "KafkaError (Message consumption error: NotCoordinator (Broker: Not coordinator))")
-                    println!(
-                        "Encountered rdkafka error while consuming, try again: {:?}",
-                        e
-                    );
+                    println!("Encountered rdkafka error while consuming, try again: {err:?}",);
                     tokio::time::sleep(Duration::from_millis(100)).await;
                     continue;
                 }

@@ -176,7 +176,6 @@ impl Iterator for Backoff {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::rngs::mock::StepRng;
 
     #[test]
     fn test_backoff() {
@@ -191,10 +190,10 @@ mod tests {
             deadline: None,
         };
 
-        let assert_fuzzy_eq = |a: f64, b: f64| assert!((b - a).abs() < 0.0001, "{} != {}", a, b);
+        let assert_fuzzy_eq = |a: f64, b: f64| assert!((b - a).abs() < 0.0001, "{a} != {b}");
 
         // Create a static rng that takes the minimum of the range
-        let rng = Box::new(StepRng::new(0, 0));
+        let rng = Box::new(ConstantRng::new(0));
         let mut backoff = Backoff::new_with_rng(&config, Some(rng));
 
         for _ in 0..20 {
@@ -202,7 +201,7 @@ mod tests {
         }
 
         // Create a static rng that takes the maximum of the range
-        let rng = Box::new(StepRng::new(u64::MAX, 0));
+        let rng = Box::new(ConstantRng::new(u64::MAX));
         let mut backoff = Backoff::new_with_rng(&config, Some(rng));
 
         for i in 0..20 {
@@ -211,7 +210,7 @@ mod tests {
         }
 
         // Create a static rng that takes the mid point of the range
-        let rng = Box::new(StepRng::new(u64::MAX / 2, 0));
+        let rng = Box::new(ConstantRng::new(u64::MAX / 2));
         let mut backoff = Backoff::new_with_rng(&config, Some(rng));
 
         let mut value = init_backoff_secs;
@@ -222,7 +221,7 @@ mod tests {
         }
 
         // deadline
-        let rng = Box::new(StepRng::new(u64::MAX, 0));
+        let rng = Box::new(ConstantRng::new(u64::MAX));
         let deadline = Duration::from_secs_f64(init_backoff_secs);
         let mut backoff = Backoff::new_with_rng(
             &BackoffConfig {
@@ -232,5 +231,30 @@ mod tests {
             Some(rng),
         );
         assert_eq!(backoff.next(), None);
+    }
+
+    /// A simple RNG that always returns the same value
+    struct ConstantRng {
+        value: u64,
+    }
+
+    impl ConstantRng {
+        fn new(value: u64) -> Self {
+            Self { value }
+        }
+    }
+
+    impl RngCore for ConstantRng {
+        fn next_u32(&mut self) -> u32 {
+            (self.value >> 32) as u32
+        }
+
+        fn next_u64(&mut self) -> u64 {
+            self.value
+        }
+
+        fn fill_bytes(&mut self, _dst: &mut [u8]) {
+            unimplemented!()
+        }
     }
 }

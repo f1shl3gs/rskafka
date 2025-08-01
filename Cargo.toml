@@ -2,7 +2,7 @@
 name = "rskafka"
 version = "0.6.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 keywords = [
@@ -26,31 +26,31 @@ flate2 = { version = "1", optional = true }
 futures = { version = "0.3", default-features = false, features = ["alloc"] }
 lz4 = { version = "1.28", optional = true }
 parking_lot = { version = "0.12" }
-rand = { version = "0.9" }
+rand = { version = "0.9", default-features = false, features = ["thread_rng"] }
 rsasl = { version = "2.2", default-features = false, features = ["config_builder", "provider", "plain", "scram-sha-2", "oauthbearer"] }
 rustls = { version = "0.23", optional = true, default-features = false, features = ["logging", "ring", "std", "tls12"] }
 snap = { version = "1", optional = true }
 thiserror = { version = "2.0" }
-tokio = { version = "1.45", default-features = false, features = ["io-util", "net", "rt", "sync", "time", "macros"] }
+tokio = { version = "1.47", default-features = false, features = ["io-util", "net", "rt", "sync", "time", "macros"] }
 tokio-rustls = { version = "0.26", optional = true, default-features = false, features = ["logging", "ring", "tls12"] }
 tracing = { version = "0.1" }
 zstd = { version = "0.13", optional = true }
 
 [dev-dependencies]
 assert_matches = { version = "1.5" }
-criterion = { version = "0.6", features = ["async_tokio"] }
+criterion = { version = "0.7", features = ["async_tokio"] }
 chrono = { version = "0.4", default-features = false, features = ["now"]}
 dotenvy = { version = "0.15" }
 futures = { version = "0.3", default-features = false, features = ["alloc"] }
 j4rs = { version = "0.22" }
-proptest = { version = "1.6" }
-proptest-derive = { version = "0.5" }
+proptest = { version = "1.7" }
+proptest-derive = { version = "0.6" }
 rustls-pemfile = { version = "2.2" }
-rdkafka = { version = "0.37", default-features = false, features = ["libz", "tokio", "zstd"] }
-tokio = { version = "1.45", features = ["macros", "rt-multi-thread", "signal"] }
+rdkafka = { version = "0.38", default-features = false, features = ["libz", "tokio", "zstd"] }
+tokio = { version = "1.47", features = ["macros", "rt-multi-thread", "signal"] }
 tracing-log = { version ="0.2" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-uuid = { version = "1.16", features = ["v4"] }
+uuid = { version = "1.17", default-features = false, features = ["v4"] }
 
 [features]
 default = [
