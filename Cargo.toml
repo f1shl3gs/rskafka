@@ -45,7 +45,7 @@ futures = { version = "0.3", default-features = false, features = ["alloc"] }
 j4rs = { version = "0.22" }
 proptest = { version = "1.7" }
 proptest-derive = { version = "0.6" }
-rustls-pemfile = { version = "2.2" }
+rustls-pki-types = { version = "1.11" }
 rdkafka = { version = "0.38", default-features = false, features = ["libz", "tokio", "zstd"] }
 tokio = { version = "1.47", features = ["macros", "rt-multi-thread", "signal"] }
 tracing-log = { version ="0.2" }
