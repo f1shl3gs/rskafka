@@ -31,10 +31,10 @@ rsasl = { version = "2.3", default-features = false, features = ["config_builder
 rustls = { version = "0.23", optional = true, default-features = false, features = ["logging", "ring", "std", "tls12"] }
 snap = { version = "1", optional = true }
 thiserror = { version = "2.0" }
-tokio = { version = "1.52", default-features = false, features = ["io-util", "net", "rt", "sync", "time", "macros"] }
+tokio = { version = "1.53", default-features = false, features = ["io-util", "net", "rt", "sync", "time", "macros"] }
 tokio-rustls = { version = "0.26", optional = true, default-features = false, features = ["logging", "ring", "tls12"] }
 tracing = { version = "0.1" }
-zstd = { version = "0.13", optional = true }
+zstd = { version = "0.14", optional = true }
 
 [dev-dependencies]
 assert_matches = { version = "1.5" }
@@ -45,12 +45,12 @@ futures = { version = "0.3", default-features = false, features = ["alloc"] }
 j4rs = { version = "0.25" }
 proptest = { version = "1.11" }
 proptest-derive = { version = "0.8" }
-rustls-pki-types = { version = "1.14" }
+rustls-pki-types = { version = "1.15" }
 rdkafka = { version = "0.39", default-features = false, features = ["libz", "tokio", "zstd"] }
-tokio = { version = "1.52", features = ["macros", "rt-multi-thread", "signal"] }
+tokio = { version = "1.53", features = ["macros", "rt-multi-thread", "signal"] }
 tracing-log = { version ="0.2" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-uuid = { version = "1.23", default-features = false, features = ["v4"] }
+uuid = { version = "1.26", default-features = false, features = ["v4"] }
 
 [features]
 default = [
